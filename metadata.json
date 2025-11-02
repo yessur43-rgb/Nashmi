@@ -1,0 +1,9 @@
+{
+  "name": "Copy of Copy of Copy of زاد مع نشمي زاد ",
+  "description": "تطبيق ويب لتحليل المنتجات وتحديد ما إذا كانت حلالاً أو حراماً أو مشبوهاً، مدعوم من Google Gemini.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation",
+    "microphone"
+  ]
+}
