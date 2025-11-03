@@ -145,6 +145,17 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
         }
     };
     
+    const handleDeleteStory = async (tripId: string) => {
+        if (window.confirm("هل أنت متأكد من حذف هذه القصة؟ لا يمكن التراجع عن هذا الإجراء.")) {
+            const tripToUpdate = trips.find(t => t.id === tripId);
+            if (tripToUpdate) {
+                const updatedTrip = { ...tripToUpdate };
+                delete updatedTrip.exportedStoryHtml;
+                await handleUpdateTrip(updatedTrip);
+            }
+        }
+    };
+
     if (isLoading) return <LoadingSpinner message="جاري تحميل رحلاتك..." />;
 
     switch (currentView) {
@@ -175,7 +186,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
          case 'storyViewer':
             return selectedTrip && <StoryViewer 
                 trip={selectedTrip} 
-                onBack={() => { setCurrentView('tripDetails');}} 
+                onBack={() => { setCurrentView(selectedTrip.entries.length > 0 ? 'tripDetails' : 'list');}} 
             />;
         default:
             return <TripAndStoryList 
@@ -183,6 +194,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
                 onSelectTrip={(trip) => { setSelectedTrip(trip); setCurrentView('tripDetails'); }} 
                 onAddTrip={() => setCurrentView('tripForm')} 
                 onViewStory={(trip) => { setSelectedTrip(trip); setCurrentView('storyViewer'); }}
+                onDeleteStory={handleDeleteStory}
             />;
     }
 };
@@ -192,7 +204,8 @@ const TripAndStoryList: React.FC<{
     onSelectTrip: (trip: Trip) => void;
     onAddTrip: () => void;
     onViewStory: (trip: Trip) => void;
-}> = ({ trips, onSelectTrip, onAddTrip, onViewStory }) => {
+    onDeleteStory: (tripId: string) => void;
+}> = ({ trips, onSelectTrip, onAddTrip, onViewStory, onDeleteStory }) => {
     const [activeTab, setActiveTab] = useState<'trips' | 'stories'>('trips');
     const stories = trips.filter(t => t.exportedStoryHtml);
 
@@ -260,21 +273,30 @@ const TripAndStoryList: React.FC<{
                         ? stories.map(trip => {
                             const firstImage = getFirstImage(trip);
                             return (
-                                <div key={trip.id} onClick={() => onViewStory(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow flex items-center gap-4">
-                                    {firstImage ? (
-                                        <img src={firstImage} alt={trip.name} className="w-24 h-24 object-cover rounded-lg flex-shrink-0" />
-                                    ) : (
-                                        <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
-                                            <BookOpen className="text-gray-400" size={32} />
-                                        </div>
-                                    )}
-                                    <div className="flex-grow">
-                                        <h3 className="text-xl font-bold">{trip.name}</h3>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
-                                        <div className="flex items-center gap-1 mt-2 text-primary dark:text-primary-light text-sm font-semibold">
-                                            <span>عرض القصة</span><ChevronsRight size={16} />
+                                <div key={trip.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4 flex-grow cursor-pointer" onClick={() => onViewStory(trip)}>
+                                        {firstImage ? (
+                                            <img src={firstImage} alt={trip.name} className="w-24 h-24 object-cover rounded-lg flex-shrink-0" />
+                                        ) : (
+                                            <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                <BookOpen className="text-gray-400" size={32} />
+                                            </div>
+                                        )}
+                                        <div className="flex-grow">
+                                            <h3 className="text-xl font-bold">{trip.name}</h3>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
+                                            <div className="flex items-center gap-1 mt-2 text-primary dark:text-primary-light text-sm font-semibold">
+                                                <span>عرض القصة</span><ChevronsRight size={16} />
+                                            </div>
                                         </div>
                                     </div>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onDeleteStory(trip.id); }}
+                                        className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0"
+                                        aria-label="حذف القصة"
+                                    >
+                                        <Trash2 size={22} />
+                                    </button>
                                 </div>
                             );
                         })
@@ -405,12 +427,11 @@ const TripDetails: React.FC<{
             setIsProcessing(false);
         }
     };
-    
-    const handleDeleteStory = () => {
-        if (window.confirm("هل أنت متأكد من حذف القصة المصورة لهذه الرحلة؟ لا يمكن التراجع عن هذا الإجراء.")) {
-            const updatedTrip = { ...trip };
-            delete updatedTrip.exportedStoryHtml;
-            onUpdateTrip(updatedTrip);
+
+    const handleDeleteEntry = (entryId: string) => {
+        if (window.confirm("هل أنت متأكد من حذف هذه اليوميات؟")) {
+            const updatedEntries = trip.entries.filter(e => e.id !== entryId);
+            onUpdateTrip({ ...trip, entries: updatedEntries });
         }
     };
 
@@ -447,7 +468,12 @@ const TripDetails: React.FC<{
                 <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
-                 {!trip.exportedStoryHtml && (
+                {trip.exportedStoryHtml ? (
+                    <button onClick={onViewStory} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg font-semibold shadow-md hover:bg-green-600">
+                        <BookOpen size={20} />
+                        <span>عرض القصة</span>
+                    </button>
+                ) : (
                     <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
                         <Download size={20}/><span>إنشاء قصة</span>
                     </button>
@@ -456,19 +482,6 @@ const TripDetails: React.FC<{
 
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
-            
-            {trip.exportedStoryHtml && (
-                <div className="space-y-3">
-                    <button onClick={onViewStory} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
-                        <BookOpen size={24} />
-                        <span>عرض القصة المصورة</span>
-                    </button>
-                    <button onClick={handleDeleteStory} className="w-full flex items-center justify-center gap-2 p-3 bg-gray-200 dark:bg-gray-700 text-red-500 rounded-lg font-semibold hover:bg-gray-300 dark:hover:bg-gray-600">
-                        <Trash2 size={20} />
-                        <span>حذف القصة</span>
-                    </button>
-                </div>
-            )}
             
             <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
                 <Plus /><span>إضافة يوميات جديدة</span>
@@ -483,21 +496,26 @@ const TripDetails: React.FC<{
                  {trip.entries.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
                      const dailyTotal = entry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
                      return (
-                         <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow" onClick={() => onEditEntry(entry)}>
-                             <div className="flex justify-between items-start">
-                                 <div>
-                                     <h3 className="text-lg font-bold">{entry.title}</h3>
-                                     <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
-                                 </div>
-                                 <div className="p-2 text-gray-500 dark:text-gray-400"><Edit size={18} /></div>
+                         <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-start gap-2">
+                             <div className="flex-grow">
+                                 <h3 className="text-lg font-bold">{entry.title}</h3>
+                                 <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
+                                 <p className="mt-2 text-gray-600 dark:text-gray-400 truncate">{entry.notes || "لا توجد ملاحظات."}</p>
+                                 {dailyTotal > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                                        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">إجمالي الصرف اليومي:</span>
+                                        <span className="text-md font-bold text-primary dark:text-primary-light">{dailyTotal.toFixed(2)} SAR</span>
+                                    </div>
+                                )}
                              </div>
-                             <p className="mt-2 text-gray-600 dark:text-gray-400 truncate">{entry.notes || "لا توجد ملاحظات."}</p>
-                             {dailyTotal > 0 && (
-                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                                    <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">إجمالي الصرف اليومي:</span>
-                                    <span className="text-md font-bold text-primary dark:text-primary-light">{dailyTotal.toFixed(2)} SAR</span>
-                                </div>
-                            )}
+                             <div className="flex-shrink-0 flex flex-col gap-2">
+                                <button onClick={() => onEditEntry(entry)} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                                    <Edit size={18} />
+                                </button>
+                                <button onClick={() => handleDeleteEntry(entry.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50">
+                                    <Trash2 size={18} />
+                                </button>
+                             </div>
                          </div>
                      );
                  })}
