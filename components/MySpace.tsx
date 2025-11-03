@@ -893,10 +893,19 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
          <div className="p-4 md:p-6 space-y-4 animate-fade-in relative">
             {isExpenseModalOpen && renderExpenseModal()}
             {fullscreenMedia && (
-                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setFullscreenMedia(null)}>
-                    <button className="absolute top-4 right-4 p-2 text-white bg-black/50 rounded-full hover:bg-black/75" aria-label="إغلاق"><X size={32} /></button>
-                    {fullscreenMedia.type === 'image' ? <img src={fullscreenMedia.src} alt="عرض مكبر" className="max-w-full max-h-full object-contain" onClick={(e) => e.stopPropagation()}/>
-                     : <video src={fullscreenMedia.src} controls autoPlay className="max-w-full max-h-full" onClick={(e) => e.stopPropagation()}/>}
+                <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setFullscreenMedia(null)}>
+                    <button
+                        onClick={() => setFullscreenMedia(null)}
+                        className="absolute top-4 right-4 z-10 p-3 bg-black/50 backdrop-blur-sm border border-white/20 text-white rounded-full hover:bg-black/70 transition-colors focus:outline-none focus:ring-2 focus:ring-white"
+                        aria-label="إغلاق"
+                    >
+                        <X size={32} />
+                    </button>
+                    {fullscreenMedia.type === 'image' ? (
+                        <img src={fullscreenMedia.src} alt="عرض مكبر" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()}/>
+                    ) : (
+                        <video src={fullscreenMedia.src} controls autoPlay className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()}/>
+                    )}
                 </div>
             )}
             {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message="جاري المعالجة..."/></div>}
