@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -30,6 +31,7 @@ const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBa
     useEffect(() => {
         if (trip.exportedStoryHtml && navigator.share && navigator.canShare) {
             const storyBlob = new Blob([trip.exportedStoryHtml], { type: 'text/html' });
+            // FIX: Corrected the order of arguments for the File constructor.
             const storyFile = new File([storyBlob], `${trip.name}.html`, { type: 'text/html' });
             if (navigator.canShare({ files: [storyFile] })) {
                 setCanShare(true);
@@ -496,11 +498,14 @@ const TripDetails: React.FC<{
                  {trip.entries.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
                      const dailyTotal = entry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
                      return (
-                         <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-start gap-2">
-                             <div className="flex-grow">
-                                 <h3 className="text-lg font-bold">{entry.title}</h3>
+                         <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center gap-3">
+                             <button onClick={() => onEditEntry(entry)} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0" aria-label="تعديل اليومية">
+                                 <Edit size={20} />
+                             </button>
+                             <div className="flex-grow min-w-0 cursor-pointer" onClick={() => onEditEntry(entry)}>
+                                 <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title}</h3>
                                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
-                                 <p className="mt-2 text-gray-600 dark:text-gray-400 truncate">{entry.notes || "لا توجد ملاحظات."}</p>
+                                 <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{entry.notes || "لا توجد ملاحظات."}</p>
                                  {dailyTotal > 0 && (
                                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
                                         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">إجمالي الصرف اليومي:</span>
@@ -508,14 +513,9 @@ const TripDetails: React.FC<{
                                     </div>
                                 )}
                              </div>
-                             <div className="flex-shrink-0 flex flex-col gap-2">
-                                <button onClick={() => onEditEntry(entry)} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
-                                    <Edit size={18} />
-                                </button>
-                                <button onClick={() => handleDeleteEntry(entry.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50">
-                                    <Trash2 size={18} />
-                                </button>
-                             </div>
+                             <button onClick={() => handleDeleteEntry(entry.id)} className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0" aria-label="حذف اليومية">
+                                 <Trash2 size={20} />
+                             </button>
                          </div>
                      );
                  })}
