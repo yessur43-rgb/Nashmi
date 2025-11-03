@@ -10,7 +10,7 @@ import StorageUsage from './common/StorageUsage';
 import { 
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
     Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon,
-    Receipt, Type, Save, X, MapPin, BookOpen
+    Receipt, Type, Save, X, MapPin, BookOpen, Share2
 } from 'lucide-react';
 
 interface ToolProps {
@@ -25,6 +25,33 @@ const dispatchStorageUpdate = () => {
 };
 
 const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBack }) => {
+    const [canShare, setCanShare] = useState(false);
+
+    useEffect(() => {
+        if (trip.exportedStoryHtml && navigator.share && navigator.canShare) {
+            const storyBlob = new Blob([trip.exportedStoryHtml], { type: 'text/html' });
+            const storyFile = new File([storyBlob], `${trip.name}.html`, { type: 'text/html' });
+            if (navigator.canShare({ files: [storyFile] })) {
+                setCanShare(true);
+            }
+        }
+    }, [trip.name, trip.exportedStoryHtml]);
+
+    const handleShare = async () => {
+        if (!trip.exportedStoryHtml) return;
+        const storyBlob = new Blob([trip.exportedStoryHtml], { type: 'text/html' });
+        const storyFile = new File([storyBlob], `${trip.name}.html`, { type: 'text/html' });
+        try {
+            await navigator.share({
+                title: `قصة رحلتي: ${trip.name}`,
+                text: `ألقِ نظرة على قصة رحلتي الرائعة "${trip.name}"!`,
+                files: [storyFile],
+            });
+        } catch (error) {
+            console.error('Error sharing story:', error);
+        }
+    };
+    
     if (!trip.exportedStoryHtml) {
         return (
             <div className="p-4 md:p-6 animate-fade-in">
@@ -46,7 +73,13 @@ const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBa
                     <ArrowRight size={24} />
                 </button>
                 <h2 className="text-xl font-bold truncate px-4">قصة: {trip.name}</h2>
-                <div className="w-10 h-10"></div> {/* Spacer to balance the back button */}
+                 <div className="w-10 h-10">
+                    {canShare && (
+                        <button onClick={handleShare} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" aria-label="مشاركة القصة">
+                            <Share2 size={24} />
+                        </button>
+                    )}
+                </div>
             </div>
             <div className="flex-grow w-full relative">
                 <iframe
@@ -142,7 +175,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
          case 'storyViewer':
             return selectedTrip && <StoryViewer 
                 trip={selectedTrip} 
-                onBack={() => { setCurrentView('list'); setSelectedTrip(null); }} 
+                onBack={() => { setCurrentView('tripDetails');}} 
             />;
         default:
             return <TripAndStoryList 
@@ -372,6 +405,14 @@ const TripDetails: React.FC<{
             setIsProcessing(false);
         }
     };
+    
+    const handleDeleteStory = () => {
+        if (window.confirm("هل أنت متأكد من حذف القصة المصورة لهذه الرحلة؟ لا يمكن التراجع عن هذا الإجراء.")) {
+            const updatedTrip = { ...trip };
+            delete updatedTrip.exportedStoryHtml;
+            onUpdateTrip(updatedTrip);
+        }
+    };
 
     return (
         <div className="p-4 md:p-6 space-y-6 animate-fade-in">
@@ -406,18 +447,29 @@ const TripDetails: React.FC<{
                 <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
-                <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
-                    <Download size={20}/><span>إنشاء قصة</span>
-                </button>
+                 {!trip.exportedStoryHtml && (
+                    <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
+                        <Download size={20}/><span>إنشاء قصة</span>
+                    </button>
+                )}
             </div>
-             {trip.exportedStoryHtml && (
-                <button onClick={onViewStory} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
-                    <BookOpen size={24} />
-                    <span>عرض القصة المصورة</span>
-                </button>
-            )}
+
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
+            
+            {trip.exportedStoryHtml && (
+                <div className="space-y-3">
+                    <button onClick={onViewStory} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
+                        <BookOpen size={24} />
+                        <span>عرض القصة المصورة</span>
+                    </button>
+                    <button onClick={handleDeleteStory} className="w-full flex items-center justify-center gap-2 p-3 bg-gray-200 dark:bg-gray-700 text-red-500 rounded-lg font-semibold hover:bg-gray-300 dark:hover:bg-gray-600">
+                        <Trash2 size={20} />
+                        <span>حذف القصة</span>
+                    </button>
+                </div>
+            )}
+            
             <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
                 <Plus /><span>إضافة يوميات جديدة</span>
             </button>

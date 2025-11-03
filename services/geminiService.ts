@@ -961,7 +961,7 @@ interface SimplifiedJournalEntry {
     title: string;
     notes: string;
     photos: SimplifiedJournalPhoto[];
-    videos: SimplifiedJournalVideo[];
+    videos: SimplifiedJournalPhoto[]; // Simplified for consistency
     expenses: SimplifiedExpense[];
 }
 interface SimplifiedTrip {
@@ -983,21 +983,34 @@ export const generateTripHtmlStory = async (trip: SimplifiedTrip, tripSummary: s
     2.  **التصميم والـ CSS:**
         *   يجب أن تكون جميع الأنماط (CSS) داخل وسم \`<style>\` واحد في الـ \`<head>\`.
         *   استخدم خط 'Tajawal' من Google Fonts (عبر \`@import\`).
-        *   يجب أن يكون التصميم أنيقًا، عصريًا، ومتجاوبًا بالكامل (responsive) ليعمل بشكل رائع على الهواتف والأجهزة المكتبية.
-        *   استخدم لوحة ألوان هادئة ومناسبة للسفر.
+        *   يجب أن يكون التصميم أنيقًا، عصريًا، ومتجاوبًا بالكامل (responsive).
+        *   **إصلاح مهم:** يجب أن تضيف الـ CSS التالي إلى وسم \`<style>\` لضمان عمل روابط المواقع بشكل صحيح:
+            \`\`\`css
+            .media-container { position: relative; display: block; overflow: hidden; border-radius: 0.75rem; }
+            .location-link {
+                position: absolute; bottom: 8px; left: 8px; z-index: 10;
+                background-color: rgba(0, 0, 0, 0.6); color: white; border-radius: 50%;
+                width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+                transition: background-color 0.2s; text-decoration: none;
+            }
+            .location-link:hover { background-color: rgba(0, 0, 0, 0.8); }
+            .location-link svg { width: 20px; height: 20px; }
+            \`\`\`
     3.  **هيكل الصفحة (HTML):**
         *   **اللغة والاتجاه:** يجب أن يكون لوسم \`<html>\` السمات \`lang="ar" dir="rtl"\`.
-        *   **الغلاف (Hero Section):** ابدأ بغلاف جذاب. استخدم الصورة الأولى من الرحلة كخلفية له (استخدم معرف الصورة الأول، مثلاً \`url('${trip.entries[0]?.photos[0]?.id || ''}')\`). يجب أن يعرض اسم الرحلة وتواريخها بخط كبير وواضح.
-        *   **قصة الرحلة:** ضع ملخص الرحلة الذي تم تزويدك به في قسم خاص وأنيق بعد الغلاف مباشرة.
+        *   **الغلاف (Hero Section):** ابدأ بغلاف جذاب. استخدم الصورة الأولى من الرحلة كخلفية له.
+        *   **قصة الرحلة:** ضع ملخص الرحلة في قسم خاص وأنيق.
         *   **الأيام (Daily Entries):** لكل يوم في الرحلة، أنشئ قسمًا خاصًا.
-            *   اعرض التاريخ وعنوان اليوم.
-            *   اعرض الملاحظات النصية لليوم.
-            *   **اعرض الصور والفيديوهات في معرض وسائط متعددة (gallery) جذاب.**
-            *   اعرض جدولًا أنيقًا بمصاريف اليوم إن وجدت.
-        *   **الملخص المالي:** في نهاية الصفحة، ضع ملخصًا لإجمالي مصاريف الرحلة.
-    4.  **بيانات الوسائط:** **مهم جداً:** لقد قمت بتزويدك بمعرفات فريدة للصور (\`photo.id\`) والفيديوهات (\`video.id\`). عند إنشاء وسوم \`<img>\` و \`<video>\`، **يجب أن تستخدم هذه المعرفات كقيمة لخاصية \`src\`**. على سبيل المثال: \`<img src="some_photo_id">\` و \`<video src="some_video_id" controls>\`. سأقوم لاحقًا باستبدال هذه المعرفات ببيانات الوسائط الفعلية.
-    5.  **ميزة موقع الوسائط (مهم جدًا):** إذا كانت بيانات الصورة أو الفيديو في الـ JSON تحتوي على \`lat\` و \`lon\`, يجب أن يكون وسم الوسائط (\`<img>\` أو \`<video>\`) مغلفًا بحاوية \`div\` ذات \`position: relative\`. بداخل هذه الحاوية، أضف رابطًا \`<a>\` يشير إلى \`https://www.google.com/maps?q=LAT,LON\` ويفتح في نافذة جديدة. يجب أن يتم تنسيق هذا الرابط ليظهر كأيقونة خريطة صغيرة (استخدم SVG مضمنًا للأيقونة) في الزاوية السفلية اليسرى للوسائط باستخدام \`position: absolute\`. اجعل الأيقونة تظهر بوضوح فوق الوسائط.
-    6.  **المحتوى:** يجب أن يكون كل المحتوى باللغة العربية، مع استخدام الأرقام الغربية (1, 2, 3) في جميع النصوص.
+    4.  **بيانات الوسائط:** **مهم جداً:** لقد قمت بتزويدك بمعرفات فريدة للصور (\`photo.id\`) والفيديوهات (\`video.id\`). عند إنشاء وسوم \`<img>\` و \`<video>\`، **يجب أن تستخدم هذه المعرفات كقيمة لخاصية \`src\`**. سأقوم لاحقًا باستبدال هذه المعرفات.
+    5.  **ميزة موقع الوسائط (مهم جدًا للتصحيح):** إذا كانت الصورة أو الفيديو يحتوي على \`lat\` و \`lon\`, اتبع هذه التعليمات بدقة:
+        *   ضع الوسيط (\`<img>\` أو \`<video>\`) داخل حاوية \`<div class="media-container">\`.
+        *   مباشرة بعد الوسيط، أضف رابط الموقع باستخدام كود HTML التالي بالضبط، مع استبدال \`LAT_PLACEHOLDER\` و \`LON_PLACEHOLDER\` بقيم خط العرض والطول الفعلية:
+            \`\`\`html
+            <a href="https://www.google.com/maps?q=LAT_PLACEHOLDER,LON_PLACEHOLDER" target="_blank" rel="noopener noreferrer" class="location-link" title="عرض الموقع على الخريطة" onclick="event.stopPropagation()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </a>
+            \`\`\`
+    6.  **المحتوى:** يجب أن يكون كل المحتوى باللغة العربية، مع استخدام الأرقام الغربية (1, 2, 3).
 
     **ملخص قصة الرحلة:**
     ---
@@ -1009,7 +1022,7 @@ export const generateTripHtmlStory = async (trip: SimplifiedTrip, tripSummary: s
     ${tripDataString}
     ---
 
-    الآن، يرجى إنشاء صفحة الـ HTML الكاملة بناءً على هذه التعليمات والبيانات. استخدم المعرفات الفريدة للوسائط كقيم \`src\`.
+    الآن، يرجى إنشاء صفحة الـ HTML الكاملة.
     `;
 
     try {
