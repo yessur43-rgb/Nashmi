@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo } from '../types';
+import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool } from '../types';
 import { calculateDistance } from '../utils/helpers';
 
 let ai: GoogleGenAI | null = null;
@@ -76,6 +76,69 @@ const generateContentWithRetry = async (
             }
         }
     }
+};
+
+export const interpretUserCommand = async (command: string): Promise<{ tool: Tool; parameters: any; spokenResponse: string } | null> => {
+  const toolDescriptions = `
+    - FindPlaces: البحث عن أماكن قريبة مثل المطاعم والمساجد. استخدمها لاستعلامات مثل "ابحث عن مطاعم حلال" أو "أين أقرب مقهى".
+    - ParkMyCar: مساعدة المستخدم في العثور على سيارته المتوقفة. استخدمها لاستعلامات مثل "أين أوقفت سيارتي؟" أو "ابحث عن سيارتي".
+    - ProductAnalyzer: تحليل منتج من صورة أو باركود للتحقق مما إذا كان حلالاً. استخدمها لـ "تحقق من هذا المنتج".
+    - MenuAnalyzer: تحليل قائمة مطعم من صورة. استخدمها لـ "حلل هذه القائمة".
+    - FindIt: البحث عن منتجات أو متاجر معينة قريبة. استخدمها لـ "أين يمكنني شراء [منتج]؟".
+    - OnMyWay: البحث عن أماكن على طول طريق الرحلة. استخدمها لـ "ابحث عن استراحة على طريقي إلى [وجهة]".
+    - ActivitiesFinder: العثور على أنشطة وفعاليات قريبة. استخدمها لـ "ماذا أفعل اليوم؟" أو "أنشطة للأطفال".
+    - CityCenterFinder: استكشاف وسط المدينة ومعالمها. استخدمها لـ "أين وسط المدينة؟".
+    - MyAccommodation: العثور على مكان إقامة المستخدم المحفوظ. استخدمها لـ "أين أسكن؟" أو "العودة إلى الفندق".
+    - IngredientGuide: البحث عن معلومات حول المكونات الغذائية. استخدمها لـ "ما هو الجيلاتين؟".
+    - MySpace: الوصول إلى مذكرات السفر الشخصية للمستخدم. استخدمها لـ "افتح مذكراتي" أو "مساحتي الشخصية".
+    - Favorites: عرض الأماكن والأنشطة المحفوظة. استخدمها لـ "اذهب إلى المفضلة".
+    `;
+
+  const prompt = `
+    أنت مساعد ذكي لتطبيق سفر اسمه "زاد". مهمتك هي تفسير أمر المستخدم وتوجيهه إلى الأداة المناسبة داخل التطبيق. أجب فقط بكائن JSON صالح يطابق المخطط المقدم. المستخدم يتحدث باللغة العربية.
+
+    هذه هي قائمة الأدوات المتاحة وأوصافها:
+    ${toolDescriptions}
+
+    بناءً على ذلك، قم بتفسير أمر المستخدم التالي:
+    "${command}"
+
+    يجب أن يتضمن ردك JSON 'tool' و 'parameters' (كائن يمكن أن يكون فارغًا) و 'spokenResponse' (تأكيد قصير وودي باللغة العربية ليتم نطقه مرة أخرى للمستخدم). بالنسبة للأدوات المتعلقة بالبحث، يجب أن يكون مصطلح بحث المستخدم في 'parameters.query'.
+    `;
+    
+  const commandSchema = {
+    type: Type.OBJECT,
+    properties: {
+      tool: { type: Type.STRING, enum: Object.values(Tool) },
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          query: { type: Type.STRING, description: "مصطلح البحث المستخرج من أمر المستخدم." }
+        },
+      },
+      spokenResponse: { type: Type.STRING, description: "تأكيد قصير وودي باللغة العربية ليتم نطقه مرة أخرى للمستخدم." }
+    },
+    required: ['tool', 'parameters', 'spokenResponse']
+  };
+
+  try {
+    const response = await generateContentWithRetry({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: commandSchema,
+      }
+    });
+    if (!response) {
+      console.error("Error interpreting command: API returned undefined response.");
+      return null;
+    }
+    return JSON.parse(response.text) as { tool: Tool; parameters: any; spokenResponse: string };
+  } catch (error) {
+    console.error("Error interpreting user command:", error);
+    return null;
+  }
 };
 
 
@@ -467,7 +530,7 @@ export const findItByImage = async (base64Image: string, location: { lat: number
 {
   "type": "product",
   "name": "اسم المنتج",
-  "description": "وصف مفصل للمنتج",
+  "description": "وصف مفصل للمتنج",
   "availability": "وصف أماكن توفره"
 }`;
 

@@ -32,11 +32,13 @@ interface ToolProps {
   onToggleFavoritePlace?: (place: Place) => void;
   favoriteRoutePlaces?: RoutePlace[];
   onToggleFavoriteRoutePlace?: (place: RoutePlace) => void;
+  initialState?: any; // For smart search initialization
 }
 
 const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
+  const [initialToolState, setInitialToolState] = useState<any>(null);
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isLocationLoading, setIsLocationLoading] = useState(true);
@@ -202,12 +204,14 @@ const App: React.FC = () => {
     db.putSetting({ key: 'darkMode', value: newIsDarkMode });
   };
 
-  const handleSelectTool = (tool: Tool) => {
+  const handleSelectTool = (tool: Tool, initialState: any = null) => {
+    setInitialToolState(initialState);
     setActiveTool(tool);
   };
 
   const handleBack = () => {
     setActiveTool(null);
+    setInitialToolState(null);
   };
 
   const toolComponents: Record<Tool, React.ComponentType<ToolProps>> = {
@@ -281,6 +285,7 @@ const App: React.FC = () => {
               onToggleFavoritePlace={handleToggleFavoritePlace}
               favoriteRoutePlaces={favoriteRoutePlaces}
               onToggleFavoriteRoutePlace={handleToggleFavoriteRoutePlace}
+              initialState={initialToolState}
             />
           )}
         </main>

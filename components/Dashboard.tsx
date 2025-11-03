@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tool } from '../types';
 import * as db from '../services/dbService';
-import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car } from 'lucide-react';
+import * as geminiService from '../services/geminiService';
+import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car, Mic, Loader2 } from 'lucide-react';
 
 interface ToolInfo {
   id: Tool;
@@ -35,7 +36,7 @@ const tools: ToolInfo[] = [
 ];
 
 interface DashboardProps {
-  onSelectTool: (tool: Tool) => void;
+  onSelectTool: (tool: Tool, initialState?: any) => void;
   isDarkMode: boolean;
   toggleDarkMode: () => void;
   onOpenApiKeyModal: () => void;
@@ -76,6 +77,97 @@ const ToolCard: React.FC<{ tool: ToolInfo; onClick: () => void; }> = ({ tool, on
 const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleDarkMode, onOpenApiKeyModal }) => {
   const [smartActions, setSmartActions] = useState<SmartAction[]>([]);
   
+  // Unified Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const speechRecognitionRef = useRef<any>(null); // Using 'any' for SpeechRecognition
+  
+  // Initialize Speech Recognition
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      speechRecognitionRef.current = new SpeechRecognition();
+      const recognition = speechRecognitionRef.current;
+      recognition.continuous = false;
+      recognition.lang = 'ar-SA';
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: any) => { // Using 'any' for SpeechRecognitionEvent
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            const finalTranscript = event.results[i][0].transcript.trim();
+            setSearchQuery(finalTranscript);
+            processCommand(finalTranscript);
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        setInterimTranscript(interim);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterimTranscript('');
+      };
+       recognition.onerror = (event: any) => { // Using 'any' for SpeechRecognitionError
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setInterimTranscript('');
+      };
+
+    } else {
+      console.warn("Speech Recognition not supported in this browser.");
+    }
+  }, []);
+
+  const processCommand = async (command: string) => {
+    if (!command) return;
+    
+    setIsProcessing(true);
+    setSearchQuery(command); // Show the final command in search bar
+
+    const result = await geminiService.interpretUserCommand(command);
+
+    if (result) {
+        if (window.speechSynthesis && result.spokenResponse) {
+            const utterance = new SpeechSynthesisUtterance(result.spokenResponse);
+            utterance.lang = 'ar-SA';
+            window.speechSynthesis.speak(utterance);
+        }
+        onSelectTool(result.tool, result.parameters);
+        setSearchQuery(''); // Clear after execution
+    } else {
+        // Handle error - maybe show a toast message
+        if (window.speechSynthesis) {
+            const utterance = new SpeechSynthesisUtterance("عذراً، لم أفهم طلبك.");
+            utterance.lang = 'ar-SA';
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+    
+    setIsProcessing(false);
+  };
+  
+  const handleToggleListening = () => {
+    if (isListening) {
+      speechRecognitionRef.current?.stop();
+      setIsListening(false);
+    } else if (speechRecognitionRef.current) {
+      setSearchQuery('');
+      setInterimTranscript('');
+      speechRecognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+  
+  const handleFormSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      processCommand(searchQuery);
+  };
+
   useEffect(() => {
     const generateSmartActions = async () => {
         const actions: SmartAction[] = [];
@@ -192,15 +284,29 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
 
       <main className="px-6 pb-6 space-y-8">
         {/* Unified Search Bar */}
-        <div className="relative">
+        <form onSubmit={handleFormSubmit} className="relative">
           <input 
             type="search"
-            placeholder="ابحث في كل أدوات زاد..."
-            className="w-full p-4 pr-12 text-lg bg-white dark:bg-gray-800 rounded-2xl shadow-md dark:shadow-black/20 focus:outline-none focus:ring-2 focus:ring-primary"
-            disabled // Placeholder for now
+            value={isListening ? interimTranscript : searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={isListening ? "استمع الآن..." : "اسألني أي شيء أو ابحث..."}
+            className="w-full p-4 pl-24 pr-12 text-lg bg-white dark:bg-gray-800 rounded-2xl shadow-md dark:shadow-black/20 focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" />
-        </div>
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <button
+                type="button"
+                onClick={handleToggleListening}
+                disabled={!speechRecognitionRef.current || isProcessing}
+                className={`p-2 rounded-full transition-colors ${isListening ? 'bg-red-500 text-white animate-pulse' : 'hover:bg-gray-200 dark:hover:bg-gray-700'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                aria-label={isListening ? "إيقاف الاستماع" : "بدء البحث الصوتي"}
+            >
+                <Mic className={isListening ? "" : "text-gray-500"} />
+            </button>
+          </div>
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            {isProcessing ? <Loader2 className="animate-spin text-primary" /> : <Search className="text-gray-400" />}
+          </div>
+        </form>
 
         {/* Smart Cards */}
         {smartActions.length > 0 && (

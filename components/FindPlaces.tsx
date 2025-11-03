@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as geminiService from '../services/geminiService';
 import { Place } from '../types';
 import LoadingSpinner from './common/LoadingSpinner';
@@ -10,9 +10,10 @@ interface FindPlacesProps {
     location: { lat: number; lon: number } | null;
     favoritePlaces?: Place[];
     onToggleFavoritePlace?: (place: Place) => void;
+    initialState?: { query?: string };
 }
 
-const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], onToggleFavoritePlace = () => {} }) => {
+const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], onToggleFavoritePlace = () => {}, initialState }) => {
     const [query, setQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -45,6 +46,13 @@ const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], 
         }
     };
     
+    useEffect(() => {
+        if (initialState?.query) {
+            setQuery(initialState.query);
+            handleSearch(initialState.query);
+        }
+    }, [initialState]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         handleSearch(query);
