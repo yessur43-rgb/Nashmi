@@ -13,6 +13,7 @@ import ParkMyCar from './components/ParkMyCar';
 import MyAccommodation from './components/MyAccommodation';
 import Favorites from './components/Favorites';
 import MySpace from './components/MySpace';
+import AskMeAnything from './components/AskMeAnything';
 import LocationInfo from './components/common/LocationInfo';
 import ApiKeyModal from './components/common/ApiKeyModal';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -227,6 +228,7 @@ const App: React.FC = () => {
     [Tool.OnMyWay]: OnMyWay,
     [Tool.MySpace]: MySpace,
     [Tool.Favorites]: Favorites,
+    [Tool.AskMeAnything]: AskMeAnything,
   };
 
   const toolTitles: Record<Tool, string> = {
@@ -242,6 +244,7 @@ const App: React.FC = () => {
     [Tool.OnMyWay]: 'على طريقي',
     [Tool.MySpace]: 'مساحتي',
     [Tool.Favorites]: 'المفضلة',
+    [Tool.AskMeAnything]: 'اسألني أي شيء',
   };
 
   const renderContent = () => {

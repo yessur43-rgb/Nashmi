@@ -11,6 +11,7 @@ export enum Tool {
     IngredientGuide = 'IngredientGuide',
     MySpace = 'MySpace',
     Favorites = 'Favorites',
+    AskMeAnything = 'AskMeAnything',
 }
 
 export interface Ingredient {

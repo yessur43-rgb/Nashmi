@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tool } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car, Mic, Loader2 } from 'lucide-react';
+import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car, Mic, Loader2, BrainCircuit } from 'lucide-react';
 
 interface ToolInfo {
   id: Tool;
@@ -28,6 +28,7 @@ const tools: ToolInfo[] = [
   { id: Tool.OnMyWay, title: 'على طريقي', description: 'أماكن على طريق رحلتك', icon: Route, color: 'bg-orange-500' },
   { id: Tool.ActivitiesFinder, title: 'الأنشطة', description: 'اكتشف أنشطة وفعاليات', icon: PartyPopper, color: 'bg-pink-500' },
   { id: Tool.CityCenterFinder, title: 'أين قلب المدينة؟', description: 'اكتشف وسط المدينة ومعالمه', icon: Building2, color: 'bg-indigo-500' },
+  { id: Tool.AskMeAnything, title: 'اسألني أي شيء', description: 'مساعدك الذكي لكل استفسارات السفر', icon: BrainCircuit, color: 'bg-indigo-500' },
   { id: Tool.ParkMyCar, title: 'أين أوقفت سيارتي؟', description: 'احفظ موقع سيارتك بسهولة', icon: ParkingCircle, color: 'bg-slate-500' },
   { id: Tool.MyAccommodation, title: 'أين أسكن؟', description: 'احفظ موقع سكنك للعودة إليه', icon: Home, color: 'bg-cyan-500' },
   { id: Tool.IngredientGuide, title: 'دليل المكونات', description: 'معلومات عن المكونات الغذائية', icon: FlaskConical, color: 'bg-yellow-500' },

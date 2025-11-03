@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse, Chat } from "@google/genai";
 import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool } from '../types';
 import { calculateDistance } from '../utils/helpers';
 
@@ -92,6 +92,7 @@ export const interpretUserCommand = async (command: string): Promise<{ tool: Too
     - IngredientGuide: البحث عن معلومات حول المكونات الغذائية. استخدمها لـ "ما هو الجيلاتين؟".
     - MySpace: الوصول إلى مذكرات السفر الشخصية للمستخدم. استخدمها لـ "افتح مذكراتي" أو "مساحتي الشخصية".
     - Favorites: عرض الأماكن والأنشطة المحفوظة. استخدمها لـ "اذهب إلى المفضلة".
+    - AskMeAnything: مساعد سفر محادثة للإجابة على أي سؤال. استخدمها لـ "ماذا أحتاج للسفر إلى سويسرا؟" ثم للمتابعة بـ "وماذا عن الطقس هناك؟".
     `;
 
   const prompt = `
@@ -1272,4 +1273,22 @@ export const findNearbyParking = async (location: { lat: number; lon: number }):
     console.error("Error finding nearby parking:", error);
     return null;
   }
+};
+
+export const startChatSession = (): Chat => {
+    const aiClient = getClient();
+    const systemInstruction = `أنت خبير سفر عالمي واسع المعرفة ومساعد للغاية. مهمتك هي الإجابة على سؤال المستخدم المتعلق بالسفر بطريقة شاملة ومفيدة ومنظمة.
+- إذا تم تقديم صورة، فاستخدمها كجزء أساسي من السياق للإجابة على السؤال.
+- أجب باللغة العربية.
+- قم بتنسيق إجابتك باستخدام Markdown لسهولة القراءة (استخدم القوائم النقطية والرقمية، والنص العريض، إلخ).
+- قدم إجابات عملية وقابلة للتنفيذ. إذا كان السؤال يتعلق بقائمة، فقدمها كقائمة. إذا كان يتعلق بخطة، فقدم خطة منظمة.
+- حافظ على نبرة ودودة ومشجعة.
+- استخدم الأرقام الغربية (1, 2, 3) دائمًا.`;
+    
+    return aiClient.chats.create({
+        model: 'gemini-2.5-flash',
+        config: {
+            systemInstruction: systemInstruction,
+        },
+    });
 };
