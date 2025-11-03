@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -497,6 +496,11 @@ const TripDetails: React.FC<{
              <div className="space-y-4">
                  {trip.entries.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
                      const dailyTotal = entry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
+                     const words = (entry.notes || '').split(/\s+/);
+                     const snippet = words.length > 25
+                        ? words.slice(0, 25).join(' ') + '...'
+                        : (entry.notes || 'لا توجد ملاحظات.');
+
                      return (
                          <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center gap-3">
                              <button onClick={() => onEditEntry(entry)} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0" aria-label="تعديل اليومية">
@@ -505,7 +509,7 @@ const TripDetails: React.FC<{
                              <div className="flex-grow min-w-0 cursor-pointer" onClick={() => onEditEntry(entry)}>
                                  <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title}</h3>
                                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
-                                 <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{entry.notes || "لا توجد ملاحظات."}</p>
+                                 <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{snippet}</p>
                                  {dailyTotal > 0 && (
                                     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
                                         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">إجمالي الصرف اليومي:</span>
