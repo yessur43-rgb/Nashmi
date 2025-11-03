@@ -579,7 +579,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
         
-        const MAX_VIDEO_SIZE_MB = 50;
+        const MAX_VIDEO_SIZE_MB = 200;
         const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
         
         const validFiles = [];
