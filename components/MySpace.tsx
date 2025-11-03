@@ -10,7 +10,7 @@ import StorageUsage from './common/StorageUsage';
 import { 
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
     Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon,
-    Receipt, Type, Save, X, MapPin, BookOpen, Share2
+    Receipt, Type, Save, X, MapPin, BookOpen, Share2, Volume2, Loader2
 } from 'lucide-react';
 
 interface ToolProps {
@@ -529,6 +529,57 @@ const TripDetails: React.FC<{
 };
 
 
+const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const response = await fetch(`data:${mimeType};base64,${base64}`);
+            const videoBlob = await response.blob();
+            
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(videoBlob);
+            
+            video.onloadedmetadata = () => {
+                const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
+                const videoTracks = stream.getVideoTracks();
+                
+                if (videoTracks.length === 0) {
+                    URL.revokeObjectURL(video.src);
+                    return reject(new Error("Video has no video tracks."));
+                }
+                
+                const mutedStream = new MediaStream(videoTracks);
+                const recorder = new MediaRecorder(mutedStream, { mimeType: 'video/webm' });
+                
+                const chunks: Blob[] = [];
+                recorder.ondataavailable = e => chunks.push(e.data);
+                
+                recorder.onstop = async () => {
+                    const mutedBlob = new Blob(chunks, { type: 'video/webm' });
+                    const mutedVideoData = await blobToBase64(mutedBlob);
+                    URL.revokeObjectURL(video.src);
+                    resolve(mutedVideoData);
+                };
+
+                recorder.start();
+                video.play();
+
+                video.onended = () => {
+                    recorder.stop();
+                };
+            };
+            
+            video.onerror = (e) => {
+                 URL.revokeObjectURL(video.src);
+                 reject(new Error("Error loading video for processing."));
+            };
+
+        } catch (error) {
+            reject(error);
+        }
+    });
+};
+
+
 const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: new Date().toISOString().split('T')[0], title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
@@ -537,6 +588,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const [newVideos, setNewVideos] = useState<{ id: string; file: File; previewUrl: string }[]>([]);
     const [formError, setFormError] = useState<string | null>(null);
     const [fullscreenMedia, setFullscreenMedia] = useState<{ type: 'image' | 'video'; src: string } | null>(null);
+    const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
 
     // Expense Modal State
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -772,6 +824,32 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const handleDeletePhoto = (photoId: string) => {
         updateEntry({ photos: currentEntry.photos.filter(p => p.id !== photoId) });
     };
+    
+    const handleMuteVideo = async (videoId: string) => {
+        const videoToMute = currentEntry.videos.find(v => v.id === videoId);
+        if (!videoToMute) return;
+
+        if (!window.confirm("هل أنت متأكد من أنك تريد إزالة الصوت من هذا الفيديو بشكل دائم؟ لا يمكن التراجع عن هذا الإجراء.")) {
+            return;
+        }
+
+        setProcessingVideoId(videoId);
+        setFormError(null);
+        try {
+            const { base64, mimeType } = await removeAudioFromVideo(videoToMute.base64, videoToMute.mimeType);
+            const mutedVideo: JournalVideo = { ...videoToMute, base64, mimeType };
+            
+            updateEntry({
+                videos: currentEntry.videos.map(v => v.id === videoId ? mutedVideo : v)
+            });
+        } catch (error) {
+            console.error("Error muting video:", error);
+            setFormError("فشلت عملية إزالة الصوت من الفيديو.");
+        } finally {
+            setProcessingVideoId(null);
+        }
+    };
+
 
     const handleDeleteVideo = (videoId: string) => {
         updateEntry({ videos: currentEntry.videos.filter(v => v.id !== videoId) });
@@ -958,7 +1036,15 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                                         <video src={src} className="w-full h-full object-cover rounded-lg" />
                                         <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-lg group-hover:bg-black/50 transition-colors"><VideoIcon className="text-white/80" size={32} /></div>
                                     </div>
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteVideo(v.id); }} className="absolute top-1 right-1 bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors z-10" aria-label="حذف الفيديو"><X size={14} /></button>
+                                    {processingVideoId === v.id && (
+                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg z-20">
+                                            <Loader2 className="animate-spin text-white" size={32} />
+                                        </div>
+                                    )}
+                                    <div className="absolute top-1 right-1 flex flex-col gap-1 z-10">
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteVideo(v.id); }} className="bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors" aria-label="حذف الفيديو"><X size={14} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMuteVideo(v.id); }} className="bg-gray-800/80 text-white rounded-full p-1 hover:bg-gray-900 transition-colors" aria-label="إزالة الصوت"><Volume2 size={14} /></button>
+                                    </div>
                                     {v.lat && v.lon && (<a href={`https://www.google.com/maps?q=${v.lat},${v.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 left-1 bg-blue-500/80 text-white rounded-full p-1 hover:bg-blue-500 transition-colors z-10" aria-label="عرض الموقع على الخريطة"><MapPin size={14} /></a>)}
                                 </div>
                             );
