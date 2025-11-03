@@ -24,27 +24,47 @@ const dispatchStorageUpdate = () => {
     window.dispatchEvent(new CustomEvent('custom-storage-update'));
 };
 
-const StoryViewer: React.FC<{ htmlContent: string; tripName: string; onClose: () => void; }> = ({ htmlContent, tripName, onClose }) => (
-    <div className="fixed inset-0 bg-gray-100 dark:bg-gray-900 z-50 animate-fade-in flex flex-col">
-        <header className="flex-shrink-0 flex items-center justify-between p-4 bg-gray-200 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700">
-            <h2 className="text-xl font-bold truncate pr-4">قصة رحلة: {tripName}</h2>
-            <button onClick={onClose} className="p-2 rounded-full bg-red-500 text-white hover:bg-red-600 flex-shrink-0">
-                <X size={24} />
-            </button>
-        </header>
-        <iframe
-            srcDoc={htmlContent}
-            className="w-full h-full border-none flex-grow"
-            title={`Trip Story - ${tripName}`}
-        />
-    </div>
-);
+const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBack }) => {
+    if (!trip.exportedStoryHtml) {
+        return (
+            <div className="p-4 md:p-6 animate-fade-in">
+                <button onClick={onBack} className="flex items-center gap-2 mb-4 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <ArrowRight />
+                    <span>الرجوع</span>
+                </button>
+                <div className="text-center p-8 border-2 border-dashed rounded-lg text-gray-500">
+                    <p className="text-xl">لم يتم إنشاء القصة لهذه الرحلة بعد.</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="animate-fade-in flex flex-col h-full w-full">
+            <div className="flex-shrink-0 flex items-center justify-between p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+                <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <ArrowRight size={24} />
+                </button>
+                <h2 className="text-xl font-bold truncate px-4">قصة: {trip.name}</h2>
+                <div className="w-10 h-10"></div> {/* Spacer to balance the back button */}
+            </div>
+            <div className="flex-grow w-full relative">
+                <iframe
+                    srcDoc={trip.exportedStoryHtml}
+                    className="w-full h-full border-none absolute inset-0"
+                    title={`Trip Story - ${trip.name}`}
+                    sandbox="allow-scripts"
+                />
+            </div>
+        </div>
+    );
+};
 
 
 // Main Component
 const MySpace: React.FC<ToolProps> = ({ location }) => {
     const [trips, setTrips] = useState<Trip[]>([]);
-    const [currentView, setCurrentView] = useState<'list' | 'tripForm' | 'tripDetails' | 'entryForm'>('list');
+    const [currentView, setCurrentView] = useState<'list' | 'tripForm' | 'tripDetails' | 'entryForm' | 'storyViewer'>('list');
     const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
     const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -105,6 +125,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
                 onAddEntry={() => { setSelectedEntry(null); setCurrentView('entryForm'); }}
                 onDeleteTrip={handleDeleteTrip}
                 onUpdateTrip={handleUpdateTrip}
+                onViewStory={() => setCurrentView('storyViewer')}
             />;
         case 'entryForm':
             return selectedTrip && <JournalEntryForm 
@@ -118,49 +139,122 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
                 onCancel={() => { setCurrentView('tripDetails'); setSelectedEntry(null); }}
                 location={location}
             />;
+         case 'storyViewer':
+            return selectedTrip && <StoryViewer 
+                trip={selectedTrip} 
+                onBack={() => { setCurrentView('list'); setSelectedTrip(null); }} 
+            />;
         default:
-            return <TripList 
+            return <TripAndStoryList 
                 trips={trips}
                 onSelectTrip={(trip) => { setSelectedTrip(trip); setCurrentView('tripDetails'); }} 
                 onAddTrip={() => setCurrentView('tripForm')} 
+                onViewStory={(trip) => { setSelectedTrip(trip); setCurrentView('storyViewer'); }}
             />;
     }
 };
 
-const TripList: React.FC<{trips: Trip[]; onSelectTrip: (trip: Trip) => void; onAddTrip: () => void;}> = ({ trips, onSelectTrip, onAddTrip }) => (
-    <div className="p-4 md:p-6 space-y-6 animate-fade-in">
-        <div className="text-center p-6 bg-green-500 dark:bg-green-800/50 rounded-xl shadow-lg">
-            <User className="mx-auto w-12 h-12 text-white mb-2" />
-            <h2 className="text-2xl font-bold text-white">مساحتي</h2>
-            <p className="text-white/80">دفتر رحلاتك الشخصي والذكي</p>
-        </div>
-        <button onClick={onAddTrip} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark transition-colors">
-            <Plus /><span>إضافة رحلة جديدة</span>
-        </button>
-        <div className="space-y-4">
-            {trips.length > 0 
-                ? trips.map(trip => (
-                    <div key={trip.id} onClick={() => onSelectTrip(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <h3 className="text-xl font-bold">{trip.name}</h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
-                            </div>
-                        </div>
-                         <div className="flex justify-between items-center mt-2 text-sm text-gray-500 dark:text-gray-400">
-                            <span>{trip.entries.length} يوميات</span>
-                            <div className="flex items-center gap-1 text-primary dark:text-primary-light">
-                                <span>عرض التفاصيل</span><ChevronsRight size={16} />
-                            </div>
-                        </div>
-                    </div>
-                )) 
-                : <div className="text-center p-8 border-2 border-dashed rounded-lg text-gray-500">لم تقم بإضافة أي رحلات بعد.</div>
+const TripAndStoryList: React.FC<{
+    trips: Trip[];
+    onSelectTrip: (trip: Trip) => void;
+    onAddTrip: () => void;
+    onViewStory: (trip: Trip) => void;
+}> = ({ trips, onSelectTrip, onAddTrip, onViewStory }) => {
+    const [activeTab, setActiveTab] = useState<'trips' | 'stories'>('trips');
+    const stories = trips.filter(t => t.exportedStoryHtml);
+
+    const getFirstImage = (trip: Trip): string | null => {
+        for (const entry of trip.entries) {
+            if (entry.photos && entry.photos.length > 0) {
+                return `data:image/jpeg;base64,${entry.photos[0].base64}`;
             }
+        }
+        return null;
+    };
+
+    return (
+        <div className="p-4 md:p-6 space-y-6 animate-fade-in">
+            <div className="text-center p-6 bg-green-500 dark:bg-green-800/50 rounded-xl shadow-lg">
+                <User className="mx-auto w-12 h-12 text-white mb-2" />
+                <h2 className="text-2xl font-bold text-white">مساحتي</h2>
+                <p className="text-white/80">دفتر رحلاتك الشخصي والذكي</p>
+            </div>
+
+            <div className="flex border-b border-gray-300 dark:border-gray-600">
+                <button
+                    onClick={() => setActiveTab('trips')}
+                    className={`flex-1 text-center py-3 font-semibold transition-colors ${activeTab === 'trips' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 dark:text-gray-400 hover:text-primary'}`}
+                >
+                    الرحلات ({trips.length})
+                </button>
+                <button
+                    onClick={() => setActiveTab('stories')}
+                    className={`flex-1 text-center py-3 font-semibold transition-colors ${activeTab === 'stories' ? 'border-b-2 border-primary text-primary' : 'text-gray-500 dark:text-gray-400 hover:text-primary'}`}
+                >
+                    القصص ({stories.length})
+                </button>
+            </div>
+            
+            {activeTab === 'trips' && (
+                <div className="space-y-4 animate-fade-in">
+                    <button onClick={onAddTrip} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark transition-colors">
+                        <Plus /><span>إضافة رحلة جديدة</span>
+                    </button>
+                    {trips.length > 0
+                        ? trips.map(trip => (
+                            <div key={trip.id} onClick={() => onSelectTrip(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h3 className="text-xl font-bold">{trip.name}</h3>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                    <span>{trip.entries.length} يوميات</span>
+                                    <div className="flex items-center gap-1 text-primary dark:text-primary-light">
+                                        <span>عرض التفاصيل</span><ChevronsRight size={16} />
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                        : <div className="text-center p-8 border-2 border-dashed rounded-lg text-gray-500">لم تقم بإضافة أي رحلات بعد.</div>
+                    }
+                </div>
+            )}
+            {activeTab === 'stories' && (
+                <div className="space-y-4 animate-fade-in">
+                    {stories.length > 0
+                        ? stories.map(trip => {
+                            const firstImage = getFirstImage(trip);
+                            return (
+                                <div key={trip.id} onClick={() => onViewStory(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow flex items-center gap-4">
+                                    {firstImage ? (
+                                        <img src={firstImage} alt={trip.name} className="w-24 h-24 object-cover rounded-lg flex-shrink-0" />
+                                    ) : (
+                                        <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
+                                            <BookOpen className="text-gray-400" size={32} />
+                                        </div>
+                                    )}
+                                    <div className="flex-grow">
+                                        <h3 className="text-xl font-bold">{trip.name}</h3>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
+                                        <div className="flex items-center gap-1 mt-2 text-primary dark:text-primary-light text-sm font-semibold">
+                                            <span>عرض القصة</span><ChevronsRight size={16} />
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })
+                        : <div className="text-center p-8 border-2 border-dashed rounded-lg text-gray-500">لم تقم بإنشاء أي قصص بعد.</div>
+                    }
+                </div>
+            )}
+
+            <StorageUsage />
         </div>
-        <StorageUsage />
-    </div>
-);
+    );
+};
+
 
 const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries'>) => void; onCancel: () => void;}> = ({ onSave, onCancel }) => {
     const [name, setName] = useState('');
@@ -204,13 +298,13 @@ const TripDetails: React.FC<{
     onAddEntry: () => void; 
     onDeleteTrip: (tripId: string) => void;
     onUpdateTrip: (updatedTrip: Trip) => void;
-}> = ({ trip, onBack, onAddEntry, onEditEntry, onDeleteTrip, onUpdateTrip }) => {
+    onViewStory: () => void;
+}> = ({ trip, onBack, onAddEntry, onEditEntry, onDeleteTrip, onUpdateTrip, onViewStory }) => {
     const [summary, setSummary] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(trip.name);
     const nameInputRef = useRef<HTMLInputElement>(null);
-    const [isStoryVisible, setIsStoryVisible] = useState(false);
 
     useEffect(() => {
         if (isEditingName && nameInputRef.current) {
@@ -272,7 +366,7 @@ const TripDetails: React.FC<{
 
                 const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
                 onUpdateTrip(updatedTrip);
-                setIsStoryVisible(true);
+                onViewStory();
             }
         } finally {
             setIsProcessing(false);
@@ -281,9 +375,6 @@ const TripDetails: React.FC<{
 
     return (
         <div className="p-4 md:p-6 space-y-6 animate-fade-in">
-             {isStoryVisible && trip.exportedStoryHtml && (
-                <StoryViewer htmlContent={trip.exportedStoryHtml} tripName={trip.name} onClose={() => setIsStoryVisible(false)} />
-            )}
             <div className="flex items-center justify-between gap-2">
                 <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
                 {isEditingName ? (
@@ -316,11 +407,11 @@ const TripDetails: React.FC<{
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
                 <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
-                    <Download size={20}/><span>{trip.exportedStoryHtml ? 'إعادة إنشاء القصة' : 'إنشاء قصة مصورة'}</span>
+                    <Download size={20}/><span>إنشاء قصة</span>
                 </button>
             </div>
              {trip.exportedStoryHtml && (
-                <button onClick={() => setIsStoryVisible(true)} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
+                <button onClick={onViewStory} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
                     <BookOpen size={24} />
                     <span>عرض القصة المصورة</span>
                 </button>
