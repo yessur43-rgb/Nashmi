@@ -497,8 +497,8 @@ const TripDetails: React.FC<{
                  {trip.entries.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
                      const dailyTotal = entry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
                      const words = (entry.notes || '').split(/\s+/);
-                     const snippet = words.length > 25
-                        ? words.slice(0, 25).join(' ') + '...'
+                     const snippet = words.length > 10
+                        ? words.slice(0, 10).join(' ') + '...'
                         : (entry.notes || 'لا توجد ملاحظات.');
 
                      return (
