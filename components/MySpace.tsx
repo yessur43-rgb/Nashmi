@@ -6,12 +6,11 @@ import { blobToBase64, compressImageAndConvertToBase64 } from '../utils/helpers'
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
-import { amiriFontBase64 } from '../utils/amiriFontBase64';
 
 import { 
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
     Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon,
-    Receipt, Type, Save, X, MapPin
+    Receipt, Type, Save, X, MapPin, BookOpen
 } from 'lucide-react';
 
 interface ToolProps {
@@ -24,6 +23,23 @@ const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2
 const dispatchStorageUpdate = () => {
     window.dispatchEvent(new CustomEvent('custom-storage-update'));
 };
+
+const StoryViewer: React.FC<{ htmlContent: string; tripName: string; onClose: () => void; }> = ({ htmlContent, tripName, onClose }) => (
+    <div className="fixed inset-0 bg-gray-100 dark:bg-gray-900 z-50 animate-fade-in flex flex-col">
+        <header className="flex-shrink-0 flex items-center justify-between p-4 bg-gray-200 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700">
+            <h2 className="text-xl font-bold truncate pr-4">قصة رحلة: {tripName}</h2>
+            <button onClick={onClose} className="p-2 rounded-full bg-red-500 text-white hover:bg-red-600 flex-shrink-0">
+                <X size={24} />
+            </button>
+        </header>
+        <iframe
+            srcDoc={htmlContent}
+            className="w-full h-full border-none flex-grow"
+            title={`Trip Story - ${tripName}`}
+        />
+    </div>
+);
+
 
 // Main Component
 const MySpace: React.FC<ToolProps> = ({ location }) => {
@@ -194,6 +210,7 @@ const TripDetails: React.FC<{
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(trip.name);
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const [isStoryVisible, setIsStoryVisible] = useState(false);
 
     useEffect(() => {
         if (isEditingName && nameInputRef.current) {
@@ -220,38 +237,31 @@ const TripDetails: React.FC<{
         setIsProcessing(false);
     };
 
-    const handleExport = async () => {
+    const handleGenerateStory = async () => {
         setIsProcessing(true);
         try {
             const storySummary = summary || await geminiService.summarizeEntireTrip(trip.entries);
+            if(storySummary && !summary) setSummary(storySummary);
             
-            // 1. Create media map
             const mediaMap = new Map<string, string>();
             trip.entries.forEach(entry => {
-                entry.photos.forEach(photo => {
-                    mediaMap.set(photo.id, `data:image/jpeg;base64,${photo.base64}`);
-                });
-                entry.videos.forEach(video => {
-                    mediaMap.set(video.id, `data:${video.mimeType};base64,${video.base64}`);
-                });
+                entry.photos.forEach(photo => mediaMap.set(photo.id, `data:image/jpeg;base64,${photo.base64}`));
+                entry.videos.forEach(video => mediaMap.set(video.id, `data:${video.mimeType};base64,${video.base64}`));
             });
 
-            // 2. Create simplified trip data for the prompt
             const simplifiedTrip = {
                 ...trip,
                 entries: trip.entries.map(entry => ({
                     ...entry,
                     photos: entry.photos.map(p => ({ id: p.id, lat: p.lat, lon: p.lon })),
                     videos: entry.videos.map(v => ({ id: v.id, lat: v.lat, lon: v.lon })),
-                    expenses: entry.expenses.map(({ photos, ...rest }) => rest) // Remove photo from expense
+                    expenses: entry.expenses.map(({ photos, ...rest }) => rest)
                 }))
             };
             
-            // 3. Call the modified Gemini service function
             const htmlTemplate = await geminiService.generateTripHtmlStory(simplifiedTrip, storySummary);
 
             if (htmlTemplate) {
-                 // 4. Replace placeholders with actual data URLs
                 let finalHtml = htmlTemplate;
                 mediaMap.forEach((dataUrl, id) => {
                     const srcPattern = new RegExp(`src=["']${id}["']`, 'g');
@@ -260,15 +270,9 @@ const TripDetails: React.FC<{
                     finalHtml = finalHtml.replace(bgUrlPattern, `url("${dataUrl}")`);
                 });
 
-                // 5. Add font and create blob
-                const fontCss = `@font-face { font-family: 'Amiri'; src: url(data:font/truetype;charset=utf-8;base64,${amiriFontBase64}) format('truetype'); } body { font-family: 'Amiri', serif; }`;
-                finalHtml = finalHtml.replace('</style>', `${fontCss}</style>`);
-                const blob = new Blob([finalHtml], { type: 'text/html' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `trip-story-${trip.name.replace(/\s/g, '-')}.html`;
-                a.click();
-                URL.revokeObjectURL(a.href);
+                const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
+                onUpdateTrip(updatedTrip);
+                setIsStoryVisible(true);
             }
         } finally {
             setIsProcessing(false);
@@ -277,6 +281,9 @@ const TripDetails: React.FC<{
 
     return (
         <div className="p-4 md:p-6 space-y-6 animate-fade-in">
+             {isStoryVisible && trip.exportedStoryHtml && (
+                <StoryViewer htmlContent={trip.exportedStoryHtml} tripName={trip.name} onClose={() => setIsStoryVisible(false)} />
+            )}
             <div className="flex items-center justify-between gap-2">
                 <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
                 {isEditingName ? (
@@ -308,10 +315,16 @@ const TripDetails: React.FC<{
                 <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
-                <button onClick={handleExport} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
-                    <Download size={20}/><span>تصدير كقصة</span>
+                <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
+                    <Download size={20}/><span>{trip.exportedStoryHtml ? 'إعادة إنشاء القصة' : 'إنشاء قصة مصورة'}</span>
                 </button>
             </div>
+             {trip.exportedStoryHtml && (
+                <button onClick={() => setIsStoryVisible(true)} className="w-full flex items-center justify-center gap-2 p-4 bg-green-500 text-white rounded-lg font-bold shadow-lg hover:bg-green-600 transition-colors">
+                    <BookOpen size={24} />
+                    <span>عرض القصة المصورة</span>
+                </button>
+            )}
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
             <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">

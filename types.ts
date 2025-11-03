@@ -170,6 +170,7 @@ export interface Trip {
     startDate: string;
     endDate: string;
     entries: JournalEntry[];
+    exportedStoryHtml?: string;
 }
 
 export interface ParkingLot {
