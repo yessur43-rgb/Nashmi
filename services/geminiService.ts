@@ -1,6 +1,8 @@
 
+
 import { GoogleGenAI, Type, GenerateContentResponse, Chat } from "@google/genai";
-import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool } from '../types';
+// FIX: Imported JournalImageAnalysis type.
+import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool, JournalImageAnalysis } from '../types';
 import { calculateDistance } from '../utils/helpers';
 
 let ai: GoogleGenAI | null = null;
@@ -1339,13 +1341,7 @@ export const startChatSession = (): Chat => {
     });
 };
 
-type JournalImageAnalysis = {
-    type: 'photo';
-    data: { description: string; };
-} | {
-    type: 'expense';
-    data: { description: string; amount: number; currency: string; amountInSAR: number; };
-};
+// FIX: Removed local JournalImageAnalysis type definition. It's now imported from types.ts.
 
 export const analyzeImageForJournal = async (base64Image: string, mimeType: string, location: { lat: number; lon: number } | null): Promise<JournalImageAnalysis | null> => {
     const locationInfo = location ? `الموقع الجغرافي للصورة هو خط العرض ${location.lat} وخط الطول ${location.lon}.` : 'لم يتم توفير موقع جغرافي.';

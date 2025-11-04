@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import Header from './components/common/Header';
-import Dashboard from './components/Dashboard';
+import CaptureScreen from './components/CaptureScreen';
 import ProductAnalyzer from './components/ProductAnalyzer';
 import MenuAnalyzer from './components/MenuAnalyzer';
 import IngredientGuide from './components/IngredientGuide';
@@ -251,7 +250,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (activeTool === null) {
       return (
-        <Dashboard 
+        <CaptureScreen 
           onSelectTool={handleSelectTool}
           isDarkMode={isDarkMode}
           toggleDarkMode={toggleDarkMode}

@@ -1,3 +1,4 @@
+
 export enum Tool {
     FindPlaces = 'FindPlaces',
     ProductAnalyzer = 'ProductAnalyzer',
@@ -197,3 +198,12 @@ export interface ParkingInfo {
     location: { lat: number; lon: number };
     timestamp: number;
 }
+
+// FIX: Exported JournalImageAnalysis type to be used across modules.
+export type JournalImageAnalysis = {
+    type: 'photo';
+    data: { description: string; };
+} | {
+    type: 'expense';
+    data: { description: string; amount: number; currency: string; amountInSAR: number; };
+};

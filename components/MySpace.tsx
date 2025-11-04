@@ -1,8 +1,10 @@
 
 
 
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
+// FIX: Imported JournalImageAnalysis to resolve type error.
+import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 import { blobToBase64, compressImageAndConvertToBase64 } from '../utils/helpers';
