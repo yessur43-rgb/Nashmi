@@ -1,11 +1,4 @@
 
-
-
-
-
-
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
@@ -623,10 +616,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         const files: File[] = Array.from(e.target.files);
         if (files.length === 0) return;
 
-        // Clear previous errors as we will now attempt to process all files.
         setFormError(null);
-        
-        // The file size check has been removed. Now, all videos will be added to the queue.
+
+        // The file size check is removed. Now, all videos will be added to the queue.
         // The existing processing pipeline will automatically trim videos to 60 seconds and
         // re-encode them, which significantly reduces file size and solves the problem
         // for the user without showing an error for large files.
@@ -1060,11 +1052,11 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 <div className="flex items-center gap-3">
                     <h3 className="font-bold">الصور والفيديوهات</h3>
                 </div>
-                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
+                <input type="file" accept="image/*,video/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
-                    <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
+                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة أو فيديو</span></button>
+                    {/* <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button> */}
                 </div>
                 {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
                     <div className="flex gap-2 overflow-x-auto pb-2">
