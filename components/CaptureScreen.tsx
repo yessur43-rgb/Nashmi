@@ -233,11 +233,11 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
       : capturedMedia.objectUrl;
 
     return (
-        <div className="absolute inset-0 bg-black z-20 flex flex-col animate-fade-in">
+        <div className="absolute inset-0 bg-black z-20 grid grid-rows-[1fr_auto] animate-fade-in">
             {isProcessing && <div className="absolute inset-0 bg-black/70 z-40 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري الحفظ...</p></div>}
             {isEnhancing && <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري تحسين الصورة بالذكاء الاصطناعي...</p></div>}
             
-            <div className="flex-grow relative">
+            <div className="relative min-h-0">
                 {capturedMedia.type === 'photo' && (
                     <div 
                       className="relative w-full h-full"
@@ -246,7 +246,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                       onTouchStart={() => {if(originalPhotoBeforeEnhance) setShowOriginal(true)}}
                       onTouchEnd={() => setShowOriginal(false)}
                     >
-                        <img src={previewSrc} alt="Preview" className="w-full h-full object-cover" />
+                        <img src={previewSrc} alt="Preview" className="w-full h-full object-contain" />
                         {originalPhotoBeforeEnhance && (
                             <div className={`absolute inset-0 flex items-center justify-center text-white text-lg font-bold bg-black/50 transition-opacity duration-300 ${showOriginal ? 'opacity-100' : 'opacity-0'}`}>
                                 قبل
@@ -254,29 +254,30 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                         )}
                     </div>
                 )}
-                {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-cover" />}
+                {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-contain" />}
+                {originalPhotoBeforeEnhance && (
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-semibold z-10">
+                        اضغط مطولاً لرؤية النسخة الأصلية
+                    </div>
+                )}
             </div>
-            {originalPhotoBeforeEnhance && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-semibold">
-                    اضغط مطولاً لرؤية النسخة الأصلية
-                </div>
-            )}
-            <div className="flex-shrink-0 p-6 bg-gradient-to-t from-black/70 to-transparent">
+            
+            <div className="p-6 bg-gradient-to-t from-black/70 to-transparent z-10">
                 <div className="w-full flex justify-around items-center">
                     <button onClick={handleDiscardMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                         <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"><XCircle size={32}/></div>
-                        <span className="text-xs font-bold">تجاهل</span>
+                        <span className="text-sm font-semibold">تجاهل</span>
                     </button>
                     <button onClick={handleSaveMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
-                        <div className="w-20 h-20 bg-primary rounded-full flex items-center justify-center"><Save size={40}/></div>
-                        <span className="text-sm font-bold">حفظ</span>
+                        <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center"><Save size={32}/></div>
+                        <span className="text-sm font-semibold">حفظ</span>
                     </button>
                     {capturedMedia.type === 'video' ? (
                          <button onClick={() => setShouldMuteVideo(p => !p)} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                             <div className={`w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-colors ${shouldMuteVideo ? 'text-red-400' : ''}`}>
                                 {shouldMuteVideo ? <VolumeX size={32}/> : <Volume2 size={32}/>}
                             </div>
-                            <span className="text-xs font-bold">{shouldMuteVideo ? 'مكتوم' : 'الصوت'}</span>
+                            <span className="text-sm font-semibold">{shouldMuteVideo ? 'مكتوم' : 'الصوت'}</span>
                         </button>
                     ) : capturedMedia.type === 'photo' ? (
                         originalPhotoBeforeEnhance ? (
@@ -284,14 +285,14 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                                 <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
                                     <RotateCcw size={32}/>
                                 </div>
-                                <span className="text-xs font-bold">تراجع</span>
+                                <span className="text-sm font-semibold">تراجع</span>
                             </button>
                         ) : (
                             <button onClick={handleEnhancePhoto} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                                 <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
                                     <Sparkles size={32}/>
                                 </div>
-                                <span className="text-xs font-bold">تحسين</span>
+                                <span className="text-sm font-semibold">تحسين</span>
                             </button>
                         )
                     ) : (
