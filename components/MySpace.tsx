@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -41,6 +44,7 @@ const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBa
     const handleShare = async () => {
         if (!trip.exportedStoryHtml) return;
         const storyBlob = new Blob([trip.exportedStoryHtml], { type: 'text/html' });
+        // FIX: Corrected the order of arguments for the File constructor.
         const storyFile = new File([storyBlob], `${trip.name}.html`, { type: 'text/html' });
         try {
             await navigator.share({
@@ -399,12 +403,12 @@ const TripDetails: React.FC<{
                 entry.videos.forEach(video => mediaMap.set(video.id, `data:${video.mimeType};base64,${video.base64}`));
             });
 
-            const simplifiedTrip = {
+            const simplifiedTrip: any = {
                 ...trip,
                 entries: trip.entries.map(entry => ({
                     ...entry,
-                    photos: entry.photos.map(p => ({ id: p.id, lat: p.lat, lon: p.lon })),
-                    videos: entry.videos.map(v => ({ id: v.id, lat: v.lat, lon: v.lon })),
+                    photos: entry.photos.map(p => ({ id: p.id, lat: p.lat, lon: p.lon, description: p.description })),
+                    videos: entry.videos.map(v => ({ id: v.id, lat: v.lat, lon: v.lon, description: v.description })),
                     expenses: entry.expenses.map(({ photos, ...rest }) => rest)
                 }))
             };
@@ -539,42 +543,50 @@ const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{
             video.src = URL.createObjectURL(videoBlob);
             
             video.onloadedmetadata = () => {
-                const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
-                const videoTracks = stream.getVideoTracks();
-                
-                if (videoTracks.length === 0) {
-                    URL.revokeObjectURL(video.src);
-                    return reject(new Error("Video has no video tracks."));
+                try {
+                    const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
+                    const videoTracks = stream.getVideoTracks();
+                    
+                    if (videoTracks.length === 0) {
+                        URL.revokeObjectURL(video.src);
+                        return reject(new Error("Video has no video tracks."));
+                    }
+                    
+                    const mutedStream = new MediaStream(videoTracks);
+                    const recorder = new MediaRecorder(mutedStream, { mimeType: 'video/webm' });
+                    
+                    const chunks: Blob[] = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    
+                    recorder.onstop = async () => {
+                        try {
+                            const mutedBlob = new Blob(chunks, { type: 'video/webm' });
+                            const mutedVideoData = await blobToBase64(mutedBlob);
+                            URL.revokeObjectURL(video.src);
+                            resolve(mutedVideoData);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+
+                    recorder.start();
+                    video.play().catch(reject);
+
+                    video.onended = () => {
+                        recorder.stop();
+                    };
+                } catch (e) {
+                    reject(e instanceof Error ? e : new Error(String(e)));
                 }
-                
-                const mutedStream = new MediaStream(videoTracks);
-                const recorder = new MediaRecorder(mutedStream, { mimeType: 'video/webm' });
-                
-                const chunks: Blob[] = [];
-                recorder.ondataavailable = e => chunks.push(e.data);
-                
-                recorder.onstop = async () => {
-                    const mutedBlob = new Blob(chunks, { type: 'video/webm' });
-                    const mutedVideoData = await blobToBase64(mutedBlob);
-                    URL.revokeObjectURL(video.src);
-                    resolve(mutedVideoData);
-                };
-
-                recorder.start();
-                video.play();
-
-                video.onended = () => {
-                    recorder.stop();
-                };
             };
             
-            video.onerror = (e) => {
+            video.onerror = () => {
                  URL.revokeObjectURL(video.src);
                  reject(new Error("Error loading video for processing."));
             };
 
-        } catch (error) {
-            reject(error);
+        } catch (error: any) {
+            reject(error instanceof Error ? error : new Error(String(error)));
         }
     });
 };
@@ -583,6 +595,7 @@ const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{
 const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: new Date().toISOString().split('T')[0], title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAnalyzingMedia, setIsAnalyzingMedia] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
     const [newVideos, setNewVideos] = useState<{ id: string; file: File; previewUrl: string }[]>([]);
@@ -594,7 +607,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [isProcessingExpense, setIsProcessingExpense] = useState(false);
     const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-    // FIX: Enhanced expenseData state to store pre-verified data and avoid re-verification.
     const [expenseData, setExpenseData] = useState<{
         description: string;
         amountText: string;
@@ -615,15 +627,73 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     const updateEntry = (updates: Partial<JournalEntry>) => setCurrentEntry(prev => ({ ...prev, ...updates }));
 
+    // FIX: Refactored to make type narrowing more robust.
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
         const files = Array.from(e.target.files);
-        const newPhotos: JournalPhoto[] = [];
+        setIsAnalyzingMedia(true);
+        setFormError(null);
+
         for (const file of files) {
-            const base64 = await compressImageAndConvertToBase64(file as File);
-            newPhotos.push({ id: generateId(), base64, lat: location?.lat, lon: location?.lon });
+            try {
+                const base64 = await compressImageAndConvertToBase64(file as File);
+                const analysis = await geminiService.analyzeImageForJournal(base64, file.type, location);
+
+                if (!analysis) {
+                    throw new Error("فشل تحليل الصورة.");
+                }
+
+                let wasHandledAsExpense = false;
+                // Check if it's a valid expense and handle it.
+                if (analysis.type === 'expense') {
+                    const expenseData = analysis.data;
+                    if (expenseData.amount != null && expenseData.currency && expenseData.amountInSAR != null) {
+                        wasHandledAsExpense = true;
+                        const newExpense: Expense = {
+                            id: generateId(),
+                            description: expenseData.description,
+                            amount: expenseData.amount,
+                            currency: expenseData.currency,
+                            amountInSAR: expenseData.amountInSAR,
+                            photos: [{
+                                id: generateId(),
+                                base64,
+                                lat: location?.lat,
+                                lon: location?.lon
+                            }]
+                        };
+                        setCurrentEntry(prev => ({
+                            ...prev,
+                            expenses: [...prev.expenses, newExpense]
+                        }));
+                    }
+                }
+
+                // If it wasn't a valid expense, treat it as a photo.
+                // This covers both 'photo' types and incomplete 'expense' types.
+                if (!wasHandledAsExpense) {
+                    const description = analysis.data.description || 'لم يتمكن الذكاء الاصطناعي من وصف هذه الصورة.';
+                    const newPhoto: JournalPhoto = {
+                        id: generateId(),
+                        base64,
+                        description,
+                        lat: location?.lat,
+                        lon: location?.lon
+                    };
+
+                    setCurrentEntry(prev => {
+                        const newNotes = description
+                            ? (prev.notes ? `${prev.notes}\n- ${description}` : `- ${description}`)
+                            : prev.notes;
+                        return { ...prev, photos: [...prev.photos, newPhoto], notes: newNotes.trim() };
+                    });
+                }
+            } catch (error) {
+                setFormError("فشل تحليل إحدى الصور.");
+                console.error("Error processing a photo:", error);
+            }
         }
-        updateEntry({ photos: [...currentEntry.photos, ...newPhotos] });
+        setIsAnalyzingMedia(false);
     };
 
     const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -689,7 +759,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const closeExpenseModal = () => {
         setIsExpenseModalOpen(false);
         setEditingExpense(null);
-        // FIX: Reset the enhanced expenseData state.
         setExpenseData({ description: '', amountText: '', amount: null, currency: null, amountInSAR: null, photo: null });
     };
 
@@ -700,7 +769,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         const base64 = await compressImageAndConvertToBase64(file);
         const result = await geminiService.analyzeReceiptImage(base64);
         if (result) {
-            // FIX: Populate the state with pre-verified data from the API.
             setExpenseData({
                 description: result.description,
                 amountText: `${result.amount} ${result.currency}`,
@@ -719,7 +787,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             const { base64, mimeType } = await blobToBase64(audioBlob);
             const result = await geminiService.analyzeExpenseFromAudio(base64, mimeType);
             if (result) {
-                // FIX: Reset pre-verified fields as the data comes from audio and needs processing on save.
                 setExpenseData(p => ({
                     ...p,
                     description: result.description,
@@ -761,7 +828,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         try {
             let processed: Omit<Expense, 'id' | 'description' | 'photos'> | null = null;
 
-            // FIX: Use pre-processed data if available to avoid redundant API call.
             if (expenseData.amount !== null && expenseData.currency !== null && expenseData.amountInSAR !== null) {
                 processed = {
                     amount: expenseData.amount,
@@ -769,7 +835,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     amountInSAR: expenseData.amountInSAR,
                 };
             } else {
-                // Otherwise, process the text input as a fallback.
                 processed = await geminiService.processExpense({ text: expenseData.amountText });
             }
 
@@ -803,7 +868,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     
     const handleEditExpense = (exp: Expense) => {
         setEditingExpense(exp);
-        // FIX: Populate all fields, including pre-verified data, when editing.
         setExpenseData({
             description: exp.description,
             amountText: `${exp.amount} ${exp.currency}`,
@@ -872,11 +936,22 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             const convertedNewVideos: JournalVideo[] = await Promise.all(
                 newVideos.map(async (v) => {
                     const { base64, mimeType } = await blobToBase64(v.file);
-                    return { id: v.id, base64, mimeType, lat: location?.lat, lon: location?.lon };
+                    const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
+                    return { id: v.id, base64, mimeType, description, lat: location?.lat, lon: location?.lon };
                 })
             );
+
+            const newVideoDescriptions = convertedNewVideos
+                .map(v => v.description)
+                .filter(Boolean)
+                .map(d => `- ${d}`);
+            
+            const notesWithVideoDescriptions = newVideoDescriptions.length > 0
+                ? `${currentEntry.notes}\n${newVideoDescriptions.join('\n')}`.trim()
+                : currentEntry.notes;
+
             const allVideos = [...currentEntry.videos, ...convertedNewVideos];
-            const finalEntry = { ...currentEntry, videos: allVideos, title: currentEntry.title || `يوميات ${currentEntry.date}` };
+            const finalEntry = { ...currentEntry, videos: allVideos, notes: notesWithVideoDescriptions, title: currentEntry.title || `يوميات ${currentEntry.date}` };
             const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
             onSave({ ...trip, entries: updatedEntries });
         } catch (error) {
@@ -931,7 +1006,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     type="text"
                     placeholder="المبلغ (مثال: 50 CHF أو 25.50 يورو)"
                     value={expenseData.amountText}
-                    // FIX: Reset pre-verified data on manual change to trigger re-verification on save.
                     onChange={e => setExpenseData(p => ({
                         ...p,
                         amountText: e.target.value,
@@ -986,7 +1060,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     )}
                 </div>
             )}
-            {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message="جاري المعالجة..."/></div>}
+            {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message={newVideos.length > 0 ? "جاري معالجة الفيديوهات..." : "جاري الحفظ..."}/></div>}
             
             {formError && <div className="p-4 my-2 bg-red-100 text-red-700 rounded-lg text-center">{formError}</div>}
 
@@ -1004,17 +1078,20 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 <AudioRecorder onRecordingComplete={handleNoteFromAudio} className="absolute bottom-2 left-2"/>
             </div>
 
-            <button onClick={handleSummarizeEntry} disabled={isProcessing || (currentEntry.photos.length === 0 && currentEntry.videos.length === 0 && newVideos.length === 0)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+            <button onClick={handleSummarizeEntry} disabled={isProcessing || isAnalyzingMedia || (currentEntry.photos.length === 0 && currentEntry.videos.length === 0 && newVideos.length === 0)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                 <Sparkles size={20}/><span>لخص لي يومي بالذكاء الاصطناعي</span>
             </button>
             
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
-                <h3 className="font-bold">الصور والفيديوهات</h3>
+                <div className="flex items-center gap-3">
+                    <h3 className="font-bold">الصور والفيديوهات</h3>
+                    {isAnalyzingMedia && <Loader2 className="animate-spin text-primary" size={20} />}
+                </div>
                 <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleVideoUpload} className="hidden" />
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => photoInputRef.current?.click()} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold"><ImageIcon/><span>إضافة صورة</span></button>
-                    <button onClick={() => videoInputRef.current?.click()} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold"><VideoIcon/><span>إضافة فيديو</span></button>
+                    <button onClick={() => photoInputRef.current?.click()} disabled={isAnalyzingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
+                    <button onClick={() => videoInputRef.current?.click()} disabled={isAnalyzingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
                 </div>
                 {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0 || newVideos.length > 0) && (
                     <div className="flex gap-2 overflow-x-auto pb-2">
@@ -1086,19 +1163,19 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                                 )}
                                 <span className="text-gray-800 dark:text-gray-100 truncate">{exp.description}</span>
                             </div>
-                            <div className="flex items-center gap-4 flex-shrink-0">
+                            <div className="flex items-center gap-2 flex-shrink-0">
                                 <div className="text-right">
                                     <div className="flex items-center justify-end gap-2 font-bold text-primary dark:text-primary-light whitespace-nowrap">
                                         <span>SAR {exp.amountInSAR.toFixed(2)}</span>
-                                        <button onClick={() => handleEditExpense(exp)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" aria-label="تعديل المصروف">
-                                            <Edit size={16} />
+                                        <button onClick={() => handleEditExpense(exp)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" aria-label="تعديل المصروف">
+                                            <Edit size={18} />
                                         </button>
                                     </div>
                                     <p className="text-sm text-gray-500 dark:text-gray-400 font-mono text-right whitespace-nowrap">
                                         {exp.amount} {exp.currency}
                                     </p>
                                 </div>
-                                <button onClick={() => handleDeleteExpense(exp.id)} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label="حذف المصروف">
+                                <button onClick={() => handleDeleteExpense(exp.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50" aria-label="حذف المصروف">
                                     <Trash2 size={18} />
                                 </button>
                             </div>
@@ -1106,10 +1183,10 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     ))}
                 </ul>
             </div>
-
+            
             <div className="flex gap-4 pt-4">
-                <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
-                <button onClick={handleSave} className="w-full p-3 bg-primary text-white rounded-lg font-semibold flex items-center justify-center gap-2"><Save/> حفظ اليوميات</button>
+                <button onClick={onCancel} className="w-full p-4 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
+                <button onClick={handleSave} className="w-full p-4 bg-primary text-white rounded-lg font-semibold" disabled={isProcessing || isAnalyzingMedia}>حفظ اليومية</button>
             </div>
         </div>
     );

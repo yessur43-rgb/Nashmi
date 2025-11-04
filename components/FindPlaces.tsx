@@ -3,7 +3,8 @@ import * as geminiService from '../services/geminiService';
 import { Place } from '../types';
 import LoadingSpinner from './common/LoadingSpinner';
 import PlaceCard from './common/PlaceCard';
-import { Search, Utensils, AlertTriangle } from 'lucide-react';
+import MapView from './common/MapView';
+import { Search, Utensils, AlertTriangle, List, MapPin } from 'lucide-react';
 import { parseDistance } from '../utils/helpers';
 
 interface FindPlacesProps {
@@ -18,6 +19,7 @@ const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], 
     const [isSearching, setIsSearching] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<Place[] | null>(null);
+    const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
     const handleSearch = async (searchQuery: string) => {
         if (!location) {
@@ -29,6 +31,7 @@ const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], 
         setIsSearching(true);
         setResults(null);
         setError(null);
+        setViewMode('list'); // Default to list view on new search
 
         try {
             const response = await geminiService.findPlacesNearby(searchQuery, location);
@@ -94,15 +97,40 @@ const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], 
             
             {results && (
                 <div className="space-y-4 animate-fade-in">
-                    {results.length > 0 ? (
-                        results.map((place, index) => {
-                            const isFavorite = favoritePlaces.some(fav => fav.mapsLink === place.mapsLink);
-                            return <PlaceCard key={index} place={place} isFavorite={isFavorite} onToggleFavorite={onToggleFavoritePlace} />
-                        })
-                    ) : (
-                         <div className="p-4 bg-yellow-100 text-yellow-700 rounded-lg text-center">
-                           لم يتم العثور على نتائج.
+                    {results.length > 0 && (
+                        <div className="flex justify-center items-center bg-gray-200 dark:bg-gray-700 rounded-lg p-1 max-w-xs mx-auto">
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-gray-800 shadow text-primary' : 'text-gray-600 dark:text-gray-300'}`}
+                            >
+                                <List size={16} />
+                                <span>قائمة</span>
+                            </button>
+                            <button
+                                onClick={() => setViewMode('map')}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${viewMode === 'map' ? 'bg-white dark:bg-gray-800 shadow text-primary' : 'text-gray-600 dark:text-gray-300'}`}
+                            >
+                                <MapPin size={16} />
+                                <span>خريطة</span>
+                            </button>
                         </div>
+                    )}
+
+                    {viewMode === 'list' ? (
+                        <>
+                            {results.length > 0 ? (
+                                results.map((place, index) => {
+                                    const isFavorite = favoritePlaces.some(fav => fav.mapsLink === place.mapsLink);
+                                    return <PlaceCard key={index} place={place} isFavorite={isFavorite} onToggleFavorite={onToggleFavoritePlace} />
+                                })
+                            ) : (
+                                <div className="p-4 bg-yellow-100 text-yellow-700 rounded-lg text-center">
+                                   لم يتم العثور على نتائج.
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        location && <MapView query={query} location={location} />
                     )}
                 </div>
             )}

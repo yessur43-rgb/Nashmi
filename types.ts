@@ -133,6 +133,7 @@ export interface CityCenterInfo {
 export interface JournalPhoto {
     id: string;
     base64: string;
+    description?: string;
     lat?: number;
     lon?: number;
 }
@@ -141,6 +142,7 @@ export interface JournalVideo {
     id: string;
     base64: string;
     mimeType: string;
+    description?: string;
     lat?: number;
     lon?: number;
 }

@@ -1,8 +1,12 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Tool } from '../types';
+import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car, Mic, Loader2, BrainCircuit } from 'lucide-react';
+import { Scan, MapPin, Search, UtensilsCrossed, PartyPopper, Route, FlaskConical, User, Heart, Sun, Moon, Building2, Key, ParkingCircle, Home, Car, Mic, Loader2, BrainCircuit, Coffee, Utensils, Camera, Video, Plus, X } from 'lucide-react';
+import { compressImageAndConvertToBase64, blobToBase64 } from '../utils/helpers';
+import QuickAudioModal from './common/QuickAudioModal';
 
 interface ToolInfo {
   id: Tool;
@@ -18,6 +22,8 @@ interface SmartAction {
   subtitle: string;
   icon: React.ElementType;
   color: string;
+  priority?: number;
+  params?: any;
 }
 
 const tools: ToolInfo[] = [
@@ -41,6 +47,8 @@ interface DashboardProps {
   isDarkMode: boolean;
   toggleDarkMode: () => void;
   onOpenApiKeyModal: () => void;
+  location: { lat: number; lon: number } | null;
+  locationError: string | null;
 }
 
 const SmartCard: React.FC<{ action: SmartAction; onClick: () => void; }> = ({ action, onClick }) => (
@@ -75,7 +83,9 @@ const ToolCard: React.FC<{ tool: ToolInfo; onClick: () => void; }> = ({ tool, on
   );
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleDarkMode, onOpenApiKeyModal }) => {
+const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleDarkMode, onOpenApiKeyModal, location, locationError }) => {
   const [smartActions, setSmartActions] = useState<SmartAction[]>([]);
   
   // Unified Search State
@@ -84,6 +94,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const speechRecognitionRef = useRef<any>(null); // Using 'any' for SpeechRecognition
+
+  // Quick Capture FAB state
+  const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
+  const quickPhotoInputRef = useRef<HTMLInputElement>(null);
+  const quickVideoInputRef = useRef<HTMLInputElement>(null);
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
   
   // Initialize Speech Recognition
   useEffect(() => {
@@ -171,48 +187,96 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
 
   useEffect(() => {
     const generateSmartActions = async () => {
-        const actions: SmartAction[] = [];
+        const potentialActions: SmartAction[] = [];
         const today = new Date().toISOString().split('T')[0];
+        const currentHour = new Date().getHours();
 
-        // 1. Park My Car
+        // --- High Priority ---
         const parkingInfo = await db.getParkingInfo();
         if (parkingInfo) {
-            actions.push({
+            potentialActions.push({
                 id: Tool.ParkMyCar,
                 title: 'العودة إلى سيارتي',
                 subtitle: `أوقفتها في ${new Date(parkingInfo.timestamp).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit', numberingSystem: 'latn' })}`,
                 icon: Car,
-                color: 'bg-slate-500'
+                color: 'bg-slate-500',
+                priority: 100
             });
         }
 
-        // 2. My Accommodation
         const accommodations = await db.getAllAccommodations();
         if (accommodations.length > 0) {
             const latestAccommodation = accommodations.sort((a, b) => b.timestamp - a.timestamp)[0];
-            actions.push({
+            potentialActions.push({
                 id: Tool.MyAccommodation,
                 title: 'العودة إلى سكني',
                 subtitle: `آخر مكان: ${latestAccommodation.name}`,
                 icon: Home,
-                color: 'bg-cyan-500'
+                color: 'bg-cyan-500',
+                priority: 90
             });
         }
         
-        // 3. My Space (Journaling)
         const trips = await db.getAllTrips();
         const activeTrip = trips.find(trip => trip.endDate >= today && trip.startDate <= today);
         if (activeTrip) {
-             actions.push({
+             potentialActions.push({
                 id: Tool.MySpace,
                 title: 'دوّن يومياتك',
                 subtitle: `رحلة "${activeTrip.name}"`,
                 icon: User,
-                color: 'bg-green-500'
+                color: 'bg-green-500',
+                priority: 80
             });
         }
 
-        // 4. Favorites
+        // --- Contextual (Time-based) ---
+        if (currentHour >= 6 && currentHour < 11) { // Morning
+            potentialActions.push({
+                id: Tool.FindPlaces,
+                title: 'أين أجد قهوة؟',
+                subtitle: 'ابدأ يومك بنشاط',
+                icon: Coffee,
+                color: 'bg-amber-600',
+                priority: 70,
+                params: { query: 'مقهى' }
+            });
+        }
+        if (currentHour >= 11 && currentHour < 15) { // Lunch
+            potentialActions.push({
+                id: Tool.FindPlaces,
+                title: 'ابحث عن غداء حلال',
+                subtitle: 'حان وقت الغداء',
+                icon: Utensils,
+                color: 'bg-red-500',
+                priority: 70,
+                params: { query: 'مطعم حلال' }
+            });
+        }
+        if (currentHour >= 15 && currentHour < 19) { // Afternoon
+            potentialActions.push({
+                id: Tool.ActivitiesFinder,
+                title: 'اكتشف أنشطة العصر',
+                subtitle: 'استمتع بما تبقى من يومك',
+                icon: PartyPopper,
+                color: 'bg-pink-500',
+                priority: 70,
+                params: { query: 'أنشطة عائلية' }
+            });
+        }
+        if (currentHour >= 19) { // Evening
+            potentialActions.push({
+                id: Tool.FindPlaces,
+                title: 'مطاعم للعشاء',
+                subtitle: 'أين ستتناول عشاءك؟',
+                icon: UtensilsCrossed,
+                color: 'bg-blue-500',
+                priority: 70,
+                params: { query: 'مطعم عشاء' }
+            });
+        }
+
+        // --- Fillers ---
         const favs = [
             ...(await db.getAllFavoriteActivities()),
             ...(await db.getAllFavoriteStores()),
@@ -221,38 +285,188 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
         ];
 
         if (favs.length > 0) {
-            actions.push({
+            potentialActions.push({
                 id: Tool.Favorites,
                 title: 'اذهب للمفضلة',
                 subtitle: `لديك ${favs.length} عناصر محفوظة`,
                 icon: Heart,
-                color: 'bg-rose-500'
+                color: 'bg-rose-500',
+                priority: 50
             });
         }
 
-        // 5. Default/Welcome Action if no other actions
-        if (actions.length === 0) {
-             actions.push({
+        // Default actions if list is small
+        if (potentialActions.length < 4) {
+            potentialActions.push({
                 id: Tool.ProductAnalyzer,
                 title: 'جرب تحليل المنتجات',
                 subtitle: 'امسح باركود أو التقط صورة',
                 icon: Scan,
-                color: 'bg-teal-500'
+                color: 'bg-teal-500',
+                priority: 10
             });
-            actions.push({
-                id: Tool.FindPlaces,
-                title: 'ابحث عن أماكن',
-                subtitle: 'مطاعم حلال، مساجد، والمزيد',
-                icon: MapPin,
-                color: 'bg-blue-500'
+            potentialActions.push({
+                id: Tool.AskMeAnything,
+                title: 'اسألني أي شيء',
+                subtitle: 'مساعدك الذكي للسفر',
+                icon: BrainCircuit,
+                color: 'bg-indigo-500',
+                priority: 5
             });
         }
-
-        setSmartActions(actions);
+        
+        const uniqueActions = Array.from(new Map(potentialActions.map(item => [item.title, item])).values());
+        const sortedActions = uniqueActions.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        setSmartActions(sortedActions.slice(0, 5));
     };
 
     generateSmartActions();
   }, []);
+
+    // Quick Capture Logic
+    const getOrCreateActiveJournalObjects = async (): Promise<{ trip: Trip; entry: JournalEntry; }> => {
+        const today = new Date().toISOString().split('T')[0];
+        const allTrips = await db.getAllTrips();
+        let activeTrip = allTrips.find(t => t.startDate <= today && t.endDate >= today);
+
+        if (!activeTrip) {
+            if (!location) {
+                throw new Error("لا يمكن إنشاء رحلة جديدة بدون موقع.");
+            }
+            const tripName = await geminiService.generateTripNameFromLocation(location);
+            const startDate = new Date();
+            const endDate = new Date();
+            endDate.setDate(startDate.getDate() + 7); // Default 1 week trip
+
+            const newTrip: Trip = {
+                id: generateId(),
+                name: tripName,
+                startDate: startDate.toISOString().split('T')[0],
+                endDate: endDate.toISOString().split('T')[0],
+                entries: [],
+            };
+            await db.putTrip(newTrip);
+            activeTrip = newTrip;
+        }
+
+        let todayEntry = activeTrip.entries.find(e => e.date === today);
+        if (!todayEntry) {
+            todayEntry = {
+                id: generateId(),
+                date: today,
+                title: `يوميات ${today}`,
+                notes: '',
+                photos: [],
+                videos: [],
+                expenses: [],
+            };
+            activeTrip.entries.push(todayEntry);
+            await db.putTrip(activeTrip);
+        }
+
+        return { trip: activeTrip, entry: todayEntry };
+    };
+
+    const handleQuickPhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !location) return;
+        
+        setIsFabMenuOpen(false);
+        setIsProcessing(true);
+        try {
+            const { trip, entry } = await getOrCreateActiveJournalObjects();
+            const base64 = await compressImageAndConvertToBase64(file);
+            const analysis = await geminiService.analyzeImageForJournal(base64, file.type, location);
+
+            if (!analysis) {
+                 throw new Error("فشل تحليل الصورة.");
+            }
+
+            if (analysis.type === 'expense' && analysis.data.amount != null && analysis.data.currency && analysis.data.amountInSAR != null) {
+                const { description, amount, currency, amountInSAR } = analysis.data;
+                const newExpense: Expense = {
+                    id: generateId(),
+                    description,
+                    amount: amount,
+                    currency: currency,
+                    amountInSAR: amountInSAR,
+                    photos: [{ id: generateId(), base64, lat: location.lat, lon: location.lon }]
+                };
+                entry.expenses.push(newExpense);
+                await db.putTrip(trip);
+                alert('تمت إضافة المصروف من الصورة إلى يومياتك بنجاح!');
+
+            } else {
+                const description = analysis.data.description || 'لم يتمكن الذكاء الاصطناعي من وصف هذه الصورة.';
+                const newPhoto: JournalPhoto = { id: generateId(), base64, description, lat: location.lat, lon: location.lon };
+                
+                entry.photos.push(newPhoto);
+                if (description) {
+                    entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
+                }
+                await db.putTrip(trip);
+                alert('تمت إضافة الصورة إلى يومياتك بنجاح!');
+            }
+        } catch (error) {
+            console.error(error);
+            alert((error as Error).message || "فشل في إضافة الصورة.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    
+    const handleQuickVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !location) return;
+
+        setIsFabMenuOpen(false);
+        setIsProcessing(true);
+        try {
+            const { trip, entry } = await getOrCreateActiveJournalObjects();
+            const { base64, mimeType } = await blobToBase64(file);
+            const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
+            const newVideo: JournalVideo = { id: generateId(), base64, mimeType, description, lat: location.lat, lon: location.lon };
+
+            entry.videos.push(newVideo);
+             if (description) {
+                entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
+            }
+            await db.putTrip(trip);
+            alert('تمت إضافة الفيديو إلى يومياتك بنجاح!');
+        } catch (error) {
+            console.error(error);
+            alert((error as Error).message || "فشل في إضافة الفيديو.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    
+    const handleAudioAnalysis = async (analysis: any) => {
+        setIsProcessing(true);
+        try {
+            const { trip, entry } = await getOrCreateActiveJournalObjects();
+            if (analysis.type === 'note') {
+                entry.notes = (entry.notes ? `${entry.notes}\n${analysis.data.transcription}` : analysis.data.transcription).trim();
+            } else if (analysis.type === 'expense') {
+                const processedExpense = await geminiService.processExpense({ text: analysis.data.amountText });
+                if (processedExpense) {
+                    const newExpense: Expense = {
+                        id: generateId(),
+                        description: analysis.data.description,
+                        ...processedExpense
+                    };
+                    entry.expenses.push(newExpense);
+                }
+            }
+            await db.putTrip(trip);
+            alert('تمت إضافة التسجيل الصوتي إلى يومياتك!');
+        } catch (error) {
+            console.error(error);
+            alert((error as Error).message || "فشل في إضافة التسجيل.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
 
   return (
@@ -283,7 +497,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
         </div>
       </header>
 
-      <main className="px-6 pb-6 space-y-8">
+      <main className="px-6 pb-24 space-y-8">
         {/* Unified Search Bar */}
         <form onSubmit={handleFormSubmit} className="relative">
           <input 
@@ -314,7 +528,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
           <div>
             <div className="flex gap-4 overflow-x-auto pb-4 -mb-4">
               {smartActions.map(action => (
-                <SmartCard key={action.id} action={action} onClick={() => onSelectTool(action.id)} />
+                <SmartCard key={action.id + action.title} action={action} onClick={() => onSelectTool(action.id, action.params)} />
               ))}
               <div className="flex-shrink-0 w-2"></div>
             </div>
@@ -331,6 +545,49 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectTool, isDarkMode, toggleD
             </div>
         </div>
       </main>
+
+       {/* Quick Capture FAB */}
+       <div className="fixed bottom-6 left-6 z-30">
+        <input type="file" accept="image/*" capture="environment" ref={quickPhotoInputRef} onChange={handleQuickPhotoUpload} className="hidden" />
+        <input type="file" accept="video/*" capture="environment" ref={quickVideoInputRef} onChange={handleQuickVideoUpload} className="hidden" />
+
+        {isFabMenuOpen && (
+            <div className="flex flex-col items-center gap-4 mb-4">
+                <div className="flex flex-col items-center group" onClick={() => setIsAudioModalOpen(true)}>
+                    <span className="text-xs bg-black/50 text-white px-2 py-1 rounded-md mb-1 opacity-0 group-hover:opacity-100 transition-opacity">صوت</span>
+                    <button className="w-14 h-14 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-red-600">
+                        <Mic size={28} />
+                    </button>
+                </div>
+                <div className="flex flex-col items-center group" onClick={() => quickVideoInputRef.current?.click()}>
+                    <span className="text-xs bg-black/50 text-white px-2 py-1 rounded-md mb-1 opacity-0 group-hover:opacity-100 transition-opacity">فيديو</span>
+                    <button className="w-14 h-14 bg-purple-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-purple-600">
+                        <Video size={28} />
+                    </button>
+                </div>
+                 <div className="flex flex-col items-center group" onClick={() => quickPhotoInputRef.current?.click()}>
+                    <span className="text-xs bg-black/50 text-white px-2 py-1 rounded-md mb-1 opacity-0 group-hover:opacity-100 transition-opacity">صورة</span>
+                    <button className="w-14 h-14 bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-600">
+                        <Camera size={28} />
+                    </button>
+                </div>
+            </div>
+        )}
+        <button
+            onClick={() => setIsFabMenuOpen(!isFabMenuOpen)}
+            disabled={!location}
+            className="w-20 h-20 bg-primary text-white rounded-full flex items-center justify-center shadow-xl hover:bg-primary-dark transition-transform transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="سجل يومياتك"
+        >
+            {isFabMenuOpen ? <X size={36} /> : <Plus size={36} />}
+        </button>
+        </div>
+        {isAudioModalOpen && (
+            <QuickAudioModal 
+                onClose={() => setIsAudioModalOpen(false)}
+                onAudioAnalyzed={handleAudioAnalysis}
+            />
+        )}
     </div>
   );
 };

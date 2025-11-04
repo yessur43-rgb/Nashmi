@@ -3,7 +3,8 @@ import * as geminiService from '../services/geminiService';
 import { Activity } from '../types';
 import LoadingSpinner from './common/LoadingSpinner';
 import ActivityCard from './common/ActivityCard';
-import { Search, AlertTriangle, PartyPopper } from 'lucide-react';
+import MapView from './common/MapView';
+import { Search, AlertTriangle, PartyPopper, List, MapPin } from 'lucide-react';
 
 interface ActivitiesFinderProps {
     location: { lat: number; lon: number } | null;
@@ -17,6 +18,7 @@ const ActivitiesFinder: React.FC<ActivitiesFinderProps> = ({ location, locationE
     const [isSearching, setIsSearching] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<Activity[] | null>(null);
+    const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
     
     const quickSearches = [
         "حدائق ومنتزهات",
@@ -37,6 +39,7 @@ const ActivitiesFinder: React.FC<ActivitiesFinderProps> = ({ location, locationE
         setResults(null);
         setError(null);
         setQuery(searchQuery);
+        setViewMode('list');
 
         try {
             const response = await geminiService.findActivitiesNearby(searchQuery, location);
@@ -109,11 +112,35 @@ const ActivitiesFinder: React.FC<ActivitiesFinderProps> = ({ location, locationE
             }
             
             {results && !isSearching && (
-                <div className="space-y-4">
-                    {results.map((activity, index) => {
-                        const isFavorite = favorites.some(fav => fav.name === activity.name && fav.mapsLink === activity.mapsLink);
-                        return <ActivityCard key={index} activity={activity} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
-                    })}
+                <div className="space-y-4 animate-fade-in">
+                     {results.length > 0 && (
+                        <div className="flex justify-center items-center bg-gray-200 dark:bg-gray-700 rounded-lg p-1 max-w-xs mx-auto">
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-gray-800 shadow text-primary' : 'text-gray-600 dark:text-gray-300'}`}
+                            >
+                                <List size={16} />
+                                <span>قائمة</span>
+                            </button>
+                            <button
+                                onClick={() => setViewMode('map')}
+                                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${viewMode === 'map' ? 'bg-white dark:bg-gray-800 shadow text-primary' : 'text-gray-600 dark:text-gray-300'}`}
+                            >
+                                <MapPin size={16} />
+                                <span>خريطة</span>
+                            </button>
+                        </div>
+                    )}
+                    {viewMode === 'list' ? (
+                         <div className="space-y-4">
+                            {results.map((activity, index) => {
+                                const isFavorite = favorites.some(fav => fav.name === activity.name && fav.mapsLink === activity.mapsLink);
+                                return <ActivityCard key={index} activity={activity} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
+                            })}
+                        </div>
+                    ) : (
+                       location && <MapView query={query} location={location} />
+                    )}
                 </div>
             )}
         </div>

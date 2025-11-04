@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, GenerateContentResponse, Chat } from "@google/genai";
 import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool } from '../types';
 import { calculateDistance } from '../utils/helpers';
@@ -193,7 +194,7 @@ export const analyzeProductImage = async (base64Image: string): Promise<ProductA
   
   try {
     const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
@@ -203,6 +204,7 @@ export const analyzeProductImage = async (base64Image: string): Promise<ProductA
       config: {
         responseMimeType: "application/json",
         responseSchema: productAnalysisSchema,
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
     if (!response) {
@@ -229,10 +231,11 @@ export const analyzeProductByBarcode = async (barcode: string): Promise<ProductA
 
   try {
     const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: prompt,
       config: {
         tools: [{googleSearch: {}}],
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
     if (!response) {
@@ -261,11 +264,11 @@ export const analyzeProductByName = async (productName: string): Promise<Product
 
   try {
     const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: prompt,
       config: {
-        // FIX: Removed responseMimeType and responseSchema as they are not allowed with googleSearch tool.
         tools: [{googleSearch: {}}],
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
      if (!response) {
@@ -311,7 +314,7 @@ export const analyzeMenuImage = async (base64Image: string): Promise<MenuItem[] 
 
   try {
     const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
@@ -321,6 +324,7 @@ export const analyzeMenuImage = async (base64Image: string): Promise<MenuItem[] 
       config: {
         responseMimeType: "application/json",
         responseSchema: menuAnalysisSchema,
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
     if (!response) {
@@ -359,11 +363,12 @@ export const getIngredientInfo = async (query: string): Promise<IngredientInfo |
 
   try {
     const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: ingredientInfoSchema,
+        thinkingConfig: { thinkingBudget: 32768 },
       }
     });
     if (!response) {
@@ -465,7 +470,7 @@ export const findItForMe = async (query: string, location: { lat: number; lon: n
   
   try {
     const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
       config: {
         tools: [{googleSearch: {}}, {googleMaps: {}}],
@@ -476,7 +481,8 @@ export const findItForMe = async (query: string, location: { lat: number; lon: n
               longitude: location.lon
             }
           }
-        }
+        },
+        thinkingConfig: { thinkingBudget: 32768 },
       },
     });
 
@@ -537,7 +543,7 @@ export const findItByImage = async (base64Image: string, location: { lat: number
 
   try {
     const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
@@ -553,7 +559,8 @@ export const findItByImage = async (base64Image: string, location: { lat: number
               longitude: location.lon
             }
           }
-        }
+        },
+        thinkingConfig: { thinkingBudget: 32768 },
       },
     });
     
@@ -607,7 +614,7 @@ export const findActivitiesNearby = async (query: string, location: { lat: numbe
 
   try {
     const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
       config: {
         tools: [{googleSearch: {}}, {googleMaps: {}}],
@@ -618,7 +625,8 @@ export const findActivitiesNearby = async (query: string, location: { lat: numbe
               longitude: location.lon
             }
           }
-        }
+        },
+        thinkingConfig: { thinkingBudget: 32768 },
       },
     });
     
@@ -680,6 +688,7 @@ export const findPlacesOnRoute = async (start: string, destination: string, quer
   try {
     const config: any = {
       tools: [{googleSearch: {}}, {googleMaps: {}}],
+      thinkingConfig: { thinkingBudget: 32768 },
     };
 
     if (start === 'موقعي الحالي' && location) {
@@ -694,7 +703,7 @@ export const findPlacesOnRoute = async (start: string, destination: string, quer
     }
 
     const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
       config: config,
     });
@@ -752,7 +761,7 @@ export const findCityCenters = async (location: { lat: number; lon: number }): P
 
   try {
     const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: prompt,
       config: {
         tools: [{googleSearch: {}}, {googleMaps: {}}],
@@ -763,7 +772,8 @@ export const findCityCenters = async (location: { lat: number; lon: number }): P
               longitude: location.lon
             }
           }
-        }
+        },
+        thinkingConfig: { thinkingBudget: 32768 },
       },
     });
     
@@ -847,7 +857,7 @@ export const summarizeJournalEntry = async (notes: string, photos: JournalPhoto[
 
     **التعليمات الأساسية:**
     1.  **تحليل الوسائط:** انظر إلى الصور بعناية فائقة. ${videoInfo}
-    2.  **دمج المعلومات:** ادمج ملاحظات المستخدم النصية مع ما تراه في الصور بسلاسة. **لكل صورة، سأزودك بوصف نصي يسبقها. إذا كان هذا الوصف يحتوي على إحداثيات جغرافية، فهذا هو الموقع الدقيق للصورة ويجب أن تعطي له الأولوية القصوى لتحديد اسم المكان أو المعلم.**
+    2.  **دمج المعلومات:** ادمج ملاحظات المستخدم النصية مع ما تراه في الصور بسلاسة. **لكل صورة، سأزودك بوصف نص يسبقها. قد يحتوي هذا الوصف على "وصف تلقائي" تم إنشاؤه بواسطة الذكاء الاصطناعي و/أو إحداثيات جغرافية دقيقة. استخدم هذه المعلومات الإضافية (الوصف التلقائي والموقع) لإثراء القصة وتحديد الأماكن بدقة.**
     3.  **الموقع العام (للسياق فقط):** ${locationInfo} استخدم هذا الموقع فقط إذا لم تتوفر إحداثيات محددة للصورة لفهم السياق العام لليوم.
     4.  **الأسلوب:** يجب أن تكون القصة شخصية وعاطفية، مع التركيز على المشاعر والذكريات. استخدم اللغة العربية بأسلوب أدبي وجذاب.
     5.  **التنسيق:** ابدأ القصة مباشرة دون أي مقدمات أو عناوين (مثل "ملخص يومك:").
@@ -864,6 +874,9 @@ export const summarizeJournalEntry = async (notes: string, photos: JournalPhoto[
     // Add photos with their context to the request
     photos.forEach((photo, index) => {
         let photoContext = `--- \nصورة رقم ${index + 1}:`;
+        if (photo.description) {
+            photoContext += ` وصف تلقائي للصورة: "${photo.description}".`;
+        }
         if (photo.lat && photo.lon) {
             photoContext += ` تم التقاط هذه الصورة عند الإحداثيات الدقيقة (خط العرض: ${photo.lat}, خط الطول: ${photo.lon}). هذا هو موقعها الفعلي، الرجاء تحديد المكان بدقة في قصتك.`;
         }
@@ -878,8 +891,11 @@ export const summarizeJournalEntry = async (notes: string, photos: JournalPhoto[
 
     try {
         const response = await generateContentWithRetry({
-            model: "gemini-2.5-flash", 
+            model: "gemini-2.5-pro", 
             contents: { parts: contentParts },
+            config: {
+                thinkingConfig: { thinkingBudget: 32768 },
+            },
         });
         if (!response) {
             console.error("Error summarizing journal entry: API returned undefined response.");
@@ -928,8 +944,11 @@ export const summarizeEntireTrip = async (entries: JournalEntry[]): Promise<stri
 
     try {
         const response = await generateContentWithRetry({
-            model: "gemini-2.5-flash", 
+            model: "gemini-2.5-pro", 
             contents: prompt,
+            config: {
+                thinkingConfig: { thinkingBudget: 32768 },
+            },
         });
         if (!response) {
             console.error("Error summarizing entire trip: API returned undefined response.");
@@ -945,11 +964,13 @@ export const summarizeEntireTrip = async (entries: JournalEntry[]): Promise<stri
 // Define simplified types for the prompt to avoid sending large base64 data
 interface SimplifiedJournalPhoto {
     id: string;
+    description?: string;
     lat?: number;
     lon?: number;
 }
 interface SimplifiedJournalVideo {
     id: string;
+    description?: string;
     lat?: number;
     lon?: number;
 }
@@ -961,7 +982,7 @@ interface SimplifiedJournalEntry {
     title: string;
     notes: string;
     photos: SimplifiedJournalPhoto[];
-    videos: SimplifiedJournalPhoto[]; // Simplified for consistency
+    videos: SimplifiedJournalVideo[]; 
     expenses: SimplifiedExpense[];
 }
 interface SimplifiedTrip {
@@ -995,6 +1016,12 @@ export const generateTripHtmlStory = async (trip: SimplifiedTrip, tripSummary: s
             }
             .location-link:hover { background-color: rgba(0, 0, 0, 0.8); }
             .location-link svg { width: 20px; height: 20px; }
+            .media-caption {
+                position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
+                background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+                color: white; padding: 20px 12px 12px; font-size: 0.875rem;
+                text-align: right; pointer-events: none;
+            }
             \`\`\`
     3.  **هيكل الصفحة (HTML):**
         *   **اللغة والاتجاه:** يجب أن يكون لوسم \`<html>\` السمات \`lang="ar" dir="rtl"\`.
@@ -1002,15 +1029,16 @@ export const generateTripHtmlStory = async (trip: SimplifiedTrip, tripSummary: s
         *   **قصة الرحلة:** ضع ملخص الرحلة في قسم خاص وأنيق.
         *   **الأيام (Daily Entries):** لكل يوم في الرحلة، أنشئ قسمًا خاصًا.
     4.  **بيانات الوسائط:** **مهم جداً:** لقد قمت بتزويدك بمعرفات فريدة للصور (\`photo.id\`) والفيديوهات (\`video.id\`). عند إنشاء وسوم \`<img>\` و \`<video>\`، **يجب أن تستخدم هذه المعرفات كقيمة لخاصية \`src\`**. سأقوم لاحقًا باستبدال هذه المعرفات.
-    5.  **ميزة موقع الوسائط (مهم جدًا للتصحيح):** إذا كانت الصورة أو الفيديو يحتوي على \`lat\` و \`lon\`, اتبع هذه التعليمات بدقة:
+    5.  **تعليقات الوسائط (Captions):** إذا كانت الصورة أو الفيديو يحتوي على خاصية \`description\`, ضعها داخل حاوية الوسائط كتعليق نصي. استخدم هذا الكود: \`<div class="media-caption">الوصف هنا</div>\`.
+    6.  **ميزة موقع الوسائط (مهم جدًا للتصحيح):** إذا كانت الصورة أو الفيديو يحتوي على \`lat\` و \`lon\`, اتبع هذه التعليمات بدقة:
         *   ضع الوسيط (\`<img>\` أو \`<video>\`) داخل حاوية \`<div class="media-container">\`.
         *   مباشرة بعد الوسيط، أضف رابط الموقع باستخدام كود HTML التالي بالضبط، مع استبدال \`LAT_PLACEHOLDER\` و \`LON_PLACEHOLDER\` بقيم خط العرض والطول الفعلية:
             \`\`\`html
             <a href="https://www.google.com/maps?q=LAT_PLACEHOLDER,LON_PLACEHOLDER" target="_blank" rel="noopener noreferrer" class="location-link" title="عرض الموقع على الخريطة" onclick="event.stopPropagation()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
             </a>
             \`\`\`
-    6.  **المحتوى:** يجب أن يكون كل المحتوى باللغة العربية، مع استخدام الأرقام الغربية (1, 2, 3).
+    7.  **المحتوى:** يجب أن يكون كل المحتوى باللغة العربية، مع استخدام الأرقام الغربية (1, 2, 3).
 
     **ملخص قصة الرحلة:**
     ---
@@ -1027,8 +1055,11 @@ export const generateTripHtmlStory = async (trip: SimplifiedTrip, tripSummary: s
 
     try {
         const response = await generateContentWithRetry({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-pro",
             contents: prompt,
+            config: {
+                thinkingConfig: { thinkingBudget: 32768 },
+            },
         });
         if (!response) {
             console.error("Error generating trip HTML story: API returned undefined response.");
@@ -1143,7 +1174,7 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<{ descri
 
     try {
         const response = await generateContentWithRetry({
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-pro",
             contents: {
                 parts: [
                     { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
@@ -1152,6 +1183,7 @@ export const analyzeReceiptImage = async (base64Image: string): Promise<{ descri
             },
             config: {
                 tools: [{ googleSearch: {} }],
+                thinkingConfig: { thinkingBudget: 32768 },
             }
         });
 
@@ -1299,9 +1331,211 @@ export const startChatSession = (): Chat => {
 - استخدم الأرقام الغربية (1, 2, 3) دائمًا.`;
     
     return aiClient.chats.create({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.5-pro',
         config: {
             systemInstruction: systemInstruction,
+            thinkingConfig: { thinkingBudget: 32768 },
         },
     });
+};
+
+type JournalImageAnalysis = {
+    type: 'photo';
+    data: { description: string; };
+} | {
+    type: 'expense';
+    data: { description: string; amount: number; currency: string; amountInSAR: number; };
+};
+
+export const analyzeImageForJournal = async (base64Image: string, mimeType: string, location: { lat: number; lon: number } | null): Promise<JournalImageAnalysis | null> => {
+    const locationInfo = location ? `الموقع الجغرافي للصورة هو خط العرض ${location.lat} وخط الطول ${location.lon}.` : 'لم يتم توفير موقع جغرافي.';
+    
+    const prompt = `
+    أنت مساعد ذكي وكاتب قصص سفر مبدع لدفتر يوميات. مهمتك هي تحليل صورة وتحديد ما إذا كانت صورة رحلة عادية أم إيصال مصروف.
+
+    1.  **تحليل الصورة:** حدد ما إذا كانت الصورة لـ (أ) إيصال/فاتورة أو (ب) صورة عادية (منظر طبيعي، طعام، شخصي، إلخ).
+    2.  **إذا كانت إيصالاً:**
+        - استخرج وصفاً موجزاً وجميلاً باللغة العربية (مثل "عشاء في مطعم الجبل").
+        - استخرج المبلغ الإجمالي النهائي (amount).
+        - استخرج رمز العملة المكون من 3 أحرف (currency).
+        - استخدم بحث Google للعثور على سعر الصرف الحالي وحوّل المبلغ إلى الريال السعودي (amountInSAR).
+        - أجب بصيغة JSON باستخدام هيكل 'expense'. **يجب أن تكون جميع الحقول موجودة وغير فارغة.**
+    3.  **إذا كانت صورة عادية:**
+        - **لا تصف الصورة بشكل حرفي.** بدلاً من ذلك، استخدم الموقع الجغرافي التالي كمصدر إلهام أساسي: ${locationInfo}
+        - اكتب وصفاً قصيراً وجذاباً ومثيراً للفضول يربط روح الصورة بالمكان. ركز على المشاعر أو الأجواء أو التفاصيل الخفية التي تجعل اللحظة مميزة.
+        - تجنب ذكر الأشخاص بشكل مباشر (مثل "طفل"، "رجل") إلا إذا كان ذلك ضرورياً للغاية لسياق القصة.
+        - أجب بصيغة JSON باستخدام هيكل 'photo'.
+
+    **أجب بصيغة JSON صالحة فقط، بدون أي نص إضافي أو علامات markdown مثل \`\`\`json.**
+
+    **هيكل 'expense':**
+    {
+      "type": "expense",
+      "data": {
+        "description": "وصف المصروف",
+        "amount": 120.50,
+        "currency": "CHF",
+        "amountInSAR": 500.25
+      }
+    }
+
+    **هيكل 'photo':**
+    {
+      "type": "photo",
+      "data": {
+        "description": "وصف الصورة"
+      }
+    }
+    `;
+
+    try {
+        const response = await generateContentWithRetry({
+            model: "gemini-2.5-pro",
+            contents: {
+                parts: [
+                    { inlineData: { mimeType: mimeType, data: base64Image } },
+                    { text: prompt },
+                ],
+            },
+            config: {
+                tools: [{ googleSearch: {} }],
+                thinkingConfig: { thinkingBudget: 32768 },
+            }
+        });
+
+        if (!response) {
+            console.error("Error analyzing image for journal: API returned undefined response.");
+            return null;
+        }
+
+        const textResponse = response.text.trim();
+        const jsonMatch = textResponse.match(/```json\s*([\s\S]*?)\s*```/);
+        const jsonString = jsonMatch ? jsonMatch[1] : textResponse;
+        
+        try {
+            return JSON.parse(jsonString) as JournalImageAnalysis;
+        } catch (e) {
+            console.error("Error parsing JSON from analyzeImageForJournal:", e, jsonString);
+            return null;
+        }
+
+    } catch (error) {
+        console.error("Error analyzing image for journal:", error);
+        return null;
+    }
+};
+
+
+export const analyzeMediaForJournal = async (base64: string, mimeType: string, location: { lat: number; lon: number } | null): Promise<string | null> => {
+    const locationInfo = location ? `الموقع الجغرافي هو خط العرض ${location.lat} وخط الطول ${location.lon}.` : 'لم يتم توفير موقع جغرافي.';
+    const prompt = `أنت كاتب يوميات سفر مبدع. بناءً على هذه الوسائط (صورة أو فيديو) والموقع الجغرافي (${locationInfo}), اكتب وصفًا قصيرًا ومؤثرًا (جملة أو جملتين) لهذه اللحظة.
+- **لا تصف ما تراه حرفيًا.** بدلاً من ذلك، اربط المشهد بالمكان لإضفاء عمق على الوصف.
+- ركز على الشعور، الجو العام، أو التفاصيل الفريدة التي تجعل هذه الذكرى مميزة.
+- تجنب ذكر الأشخاص بشكل مباشر (مثل "طفل") ما لم يكن ضروريًا للغاية.
+أجب بالوصف النصي فقط، بدون أي مقدمات أو تنسيق. استخدم الأرقام الغربية (1, 2, 3) إذا لزم الأمر.`;
+
+    try {
+        const response = await generateContentWithRetry({
+            model: 'gemini-2.5-flash',
+            contents: {
+                parts: [
+                    { inlineData: { mimeType, data: base64 } },
+                    { text: prompt },
+                ],
+            },
+        });
+        if (!response) {
+            console.error("Error analyzing media for journal: API returned undefined response.");
+            return null;
+        }
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error analyzing media for journal:", error);
+        return null;
+    }
+};
+
+export const generateTripNameFromLocation = async (location: { lat: number, lon: number }): Promise<string> => {
+    const prompt = `
+    بناءً على هذه الإحداثيات الجغرافية (خط العرض: ${location.lat}، خط الطول: ${location.lon})، ما هي الدولة أو المدينة الرئيسية؟
+    أجب فقط باسم رحلة مقترح باللغة العربية.
+    
+    مثال 1: "رحلة إلى سويسرا"
+    مثال 2: "رحلة إلى لندن"
+    
+    لا تضف أي نص آخر. أجب فقط بالاسم المقترح.
+    `;
+    try {
+        const response = await generateContentWithRetry({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        if (!response) {
+            return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`;
+        }
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating trip name from location:", error);
+        return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`; // Fallback name
+    }
+};
+
+type JournalAudioAnalysis = {
+    type: 'note';
+    data: { transcription: string; };
+} | {
+    type: 'expense';
+    data: { description: string; amountText: string; };
+};
+
+export const analyzeAudioForJournal = async (audioBase64: string, mimeType: string): Promise<JournalAudioAnalysis | null> => {
+    const prompt = `
+    استمع إلى هذا التسجيل الصوتي باللغة العربية. حدد ما إذا كان المستخدم يسجل ملاحظة عامة لدفتر يومياته أم يصف مصروفًا.
+    - إذا كانت **ملاحظة عامة**، قم بنسخها نصيًا.
+    - إذا كان **وصفًا لمصروف**، استخرج وصفًا موجزًا للمصروف والمبلغ مع العملة كنص واحد.
+    
+    أجب بصيغة JSON فقط باستخدام المخطط التالي.
+    `;
+
+    const audioAnalysisSchema = {
+        type: Type.OBJECT,
+        properties: {
+            type: { type: Type.STRING, enum: ['note', 'expense'] },
+            data: {
+                type: Type.OBJECT,
+                properties: {
+                    transcription: { type: Type.STRING, description: 'النص المنسوخ للملاحظة العامة.' },
+                    description: { type: Type.STRING, description: 'الوصف المستخرج للمصروف.' },
+                    amountText: { type: Type.STRING, description: 'المبلغ والعملة كنص (مثال: "50 CHF").' }
+                }
+            }
+        },
+        required: ['type', 'data']
+    };
+
+    try {
+        const response = await generateContentWithRetry({
+            model: "gemini-2.5-flash",
+            contents: {
+                parts: [
+                    { inlineData: { mimeType, data: audioBase64 } },
+                    { text: prompt },
+                ],
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: audioAnalysisSchema,
+            }
+        });
+
+        if (!response) {
+            console.error("Error analyzing audio for journal: API returned undefined response.");
+            return null;
+        }
+
+        return JSON.parse(response.text) as JournalAudioAnalysis;
+    } catch (error) {
+        console.error("Error analyzing audio for journal:", error);
+        return null;
+    }
 };

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from './components/common/Header';
 import Dashboard from './components/Dashboard';
@@ -255,6 +256,8 @@ const App: React.FC = () => {
           isDarkMode={isDarkMode}
           toggleDarkMode={toggleDarkMode}
           onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+          location={location}
+          locationError={locationError}
         />
       );
     }
