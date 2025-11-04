@@ -67,6 +67,8 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   };
 
   useEffect(() => {
+    // When camera mode changes, reset flash state as the new stream will have flash off.
+    setIsFlashOn(false);
     startCameraStream();
     return () => stopCameraStream();
   }, [facingMode, activeMode]);
@@ -307,7 +309,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             <button onClick={onOpenApiKeyModal} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><Key/></button>
         </div>
         <div className="flex items-center gap-2">
-          {activeMode === 'video' &&
+          {activeMode !== 'audio' &&
             <button onClick={toggleFlash} className={`p-2 bg-black/30 rounded-full backdrop-blur-sm ${isFlashOn ? 'text-yellow-400' : 'text-white'}`}>
                 {isFlashOn ? <ZapOff /> : <Zap />}
             </button>

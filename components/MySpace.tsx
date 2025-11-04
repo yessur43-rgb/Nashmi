@@ -597,13 +597,17 @@ const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{
 const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: new Date().toISOString().split('T')[0], title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
-    const [isAnalyzingMedia, setIsAnalyzingMedia] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
-    const [newVideos, setNewVideos] = useState<{ id: string; file: File; previewUrl: string }[]>([]);
     const [formError, setFormError] = useState<string | null>(null);
     const [fullscreenMedia, setFullscreenMedia] = useState<{ type: 'image' | 'video'; src: string } | null>(null);
     const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
+
+    // Media processing queue state
+    const [mediaQueue, setMediaQueue] = useState<{ file: File; totalInBatch: number }[]>([]);
+    const [isProcessingMedia, setIsProcessingMedia] = useState(false);
+    const [processingStatus, setProcessingStatus] = useState('');
+
 
     // Expense Modal State
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -620,101 +624,25 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const expenseReceiptInputRef = useRef<HTMLInputElement>(null);
     const expensePhotoInputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        const urls = newVideos.map(v => v.previewUrl);
-        return () => {
-            urls.forEach(url => URL.revokeObjectURL(url));
-        };
-    }, [newVideos]);
-
     const updateEntry = (updates: Partial<JournalEntry>) => setCurrentEntry(prev => ({ ...prev, ...updates }));
 
-    // FIX: Refactored to make type narrowing more robust.
-    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
-        const files = Array.from(e.target.files);
-        setIsAnalyzingMedia(true);
-        setFormError(null);
-
-        for (const file of files) {
-            try {
-                const base64 = await compressImageAndConvertToBase64(file as File);
-                const analysis = await geminiService.analyzeImageForJournal(base64, file.type, location);
-
-                if (!analysis) {
-                    throw new Error("فشل تحليل الصورة.");
-                }
-
-                let wasHandledAsExpense = false;
-                // Check if it's a valid expense and handle it.
-                if (analysis.type === 'expense') {
-                    const expenseData = analysis.data;
-                    if (expenseData.amount != null && expenseData.currency && expenseData.amountInSAR != null) {
-                        wasHandledAsExpense = true;
-                        const newExpense: Expense = {
-                            id: generateId(),
-                            description: expenseData.description,
-                            amount: expenseData.amount,
-                            currency: expenseData.currency,
-                            amountInSAR: expenseData.amountInSAR,
-                            photos: [{
-                                id: generateId(),
-                                base64,
-                                lat: location?.lat,
-                                lon: location?.lon
-                            }]
-                        };
-                        setCurrentEntry(prev => ({
-                            ...prev,
-                            expenses: [...prev.expenses, newExpense]
-                        }));
-                    }
-                }
-
-                // If it wasn't a valid expense, treat it as a photo.
-                // This covers both 'photo' types and incomplete 'expense' types.
-                if (!wasHandledAsExpense) {
-                    const description = analysis.data.description || 'لم يتمكن الذكاء الاصطناعي من وصف هذه الصورة.';
-                    const newPhoto: JournalPhoto = {
-                        id: generateId(),
-                        base64,
-                        description,
-                        lat: location?.lat,
-                        lon: location?.lon
-                    };
-
-                    setCurrentEntry(prev => {
-                        const newNotes = description
-                            ? (prev.notes ? `${prev.notes}\n- ${description}` : `- ${description}`)
-                            : prev.notes;
-                        return { ...prev, photos: [...prev.photos, newPhoto], notes: newNotes.trim() };
-                    });
-                }
-            } catch (error) {
-                setFormError("فشل تحليل إحدى الصور.");
-                console.error("Error processing a photo:", error);
-            }
-        }
-        setIsAnalyzingMedia(false);
-    };
-
-    const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files) return;
-        const files = Array.from(e.target.files);
+        // FIX: Explicitly type `files` as `File[]` to resolve TypeScript's inability to infer the type from `e.target.files` in this context, which was causing subsequent properties like `type`, `size`, and `name` to be inaccessible.
+        const files: File[] = Array.from(e.target.files);
         if (files.length === 0) return;
-        
+
         const MAX_VIDEO_SIZE_MB = 200;
         const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
-        
-        const validFiles = [];
-        const oversizedFiles = [];
+
+        const validFiles: File[] = [];
+        const oversizedFiles: string[] = [];
 
         for (const file of files) {
-            const currentFile = file as File;
-            if (currentFile.size > MAX_VIDEO_SIZE_BYTES) {
-                oversizedFiles.push(currentFile.name);
+            if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_BYTES) {
+                oversizedFiles.push(file.name);
             } else {
-                validFiles.push(currentFile);
+                validFiles.push(file);
             }
         }
 
@@ -723,17 +651,72 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         } else {
             setFormError(null);
         }
-        
+
         if (validFiles.length > 0) {
-            const newlyUploadedVideos = validFiles.map(rawFile => {
-                 const file = rawFile as File;
-                 const id = generateId();
-                 const previewUrl = URL.createObjectURL(file);
-                 return { id, file, previewUrl };
-            });
-            setNewVideos(prev => [...prev, ...newlyUploadedVideos]);
+            const newQueueItems = validFiles.map(file => ({ file, totalInBatch: validFiles.length }));
+            setMediaQueue(prev => [...prev, ...newQueueItems]);
         }
+        
+        // Reset file input to allow selecting the same file again
+        e.target.value = '';
     };
+
+    useEffect(() => {
+        const processQueue = async () => {
+            if (mediaQueue.length === 0 || isProcessingMedia) {
+                if (mediaQueue.length === 0) {
+                    setIsProcessingMedia(false);
+                    setProcessingStatus('');
+                }
+                return;
+            }
+
+            setIsProcessingMedia(true);
+            const { file: fileToProcess, totalInBatch } = mediaQueue[0];
+            const currentNumber = totalInBatch - mediaQueue.length + 1;
+            
+            setProcessingStatus(`جاري معالجة ${currentNumber} من ${totalInBatch}...`);
+            
+            try {
+                if (fileToProcess.type.startsWith('image/')) {
+                    const base64 = await compressImageAndConvertToBase64(fileToProcess);
+                    const analysis: JournalImageAnalysis | null = await geminiService.analyzeImageForJournal(base64, fileToProcess.type, location);
+
+                    if (!analysis) throw new Error("فشل تحليل الصورة.");
+
+                    if (analysis.type === 'expense' && analysis.data.amount != null) {
+                        const expenseData = analysis.data;
+                        const newExpense: Expense = {
+                            id: generateId(), description: expenseData.description, amount: expenseData.amount,
+                            currency: expenseData.currency, amountInSAR: expenseData.amountInSAR,
+                            photos: [{ id: generateId(), base64, lat: location?.lat, lon: location?.lon }]
+                        };
+                        updateEntry({ expenses: [...currentEntry.expenses, newExpense] });
+                    } else {
+                        const description = (analysis.data as any)?.description || 'لم يتمكن الذكاء الاصطناعي من وصف هذه الصورة.';
+                        const newPhoto: JournalPhoto = { id: generateId(), base64, description, lat: location?.lat, lon: location?.lon };
+                        const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
+                        updateEntry({ photos: [...currentEntry.photos, newPhoto], notes: newNotes.trim() });
+                    }
+                } else if (fileToProcess.type.startsWith('video/')) {
+                    const { base64, mimeType } = await blobToBase64(fileToProcess);
+                    const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
+                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, description, lat: location?.lat, lon: location?.lon };
+                    const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
+                    updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
+                }
+            } catch (error) {
+                console.error("Error processing file:", fileToProcess.name, error);
+                setFormError(`حدث خطأ أثناء معالجة الملف: ${fileToProcess.name}`);
+            } finally {
+                setMediaQueue(prev => prev.slice(1));
+                setIsProcessingMedia(false); 
+            }
+        };
+
+        processQueue();
+    }, [mediaQueue, isProcessingMedia, location, currentEntry.notes, currentEntry.photos.length, currentEntry.videos.length, currentEntry.expenses.length]);
+
 
     const handleNoteFromAudio = async (audioBlob: Blob) => {
         setIsProcessing(true);
@@ -921,44 +904,20 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         updateEntry({ videos: currentEntry.videos.filter(v => v.id !== videoId) });
     };
 
-    const handleDeleteNewVideo = (videoId: string) => {
-        setNewVideos(prev => {
-            const videoToRemove = prev.find(v => v.id === videoId);
-            if (videoToRemove) {
-                URL.revokeObjectURL(videoToRemove.previewUrl);
-            }
-            return prev.filter(v => v.id !== videoId);
-        });
-    };
-
     const handleSave = async () => {
+        if (mediaQueue.length > 0) {
+            setFormError("يرجى الانتظار حتى تكتمل معالجة جميع الصور ومقاطع الفيديو.");
+            return;
+        }
         setFormError(null);
         setIsProcessing(true);
         try {
-            const convertedNewVideos: JournalVideo[] = await Promise.all(
-                newVideos.map(async (v) => {
-                    const { base64, mimeType } = await blobToBase64(v.file);
-                    const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
-                    return { id: v.id, base64, mimeType, description, lat: location?.lat, lon: location?.lon };
-                })
-            );
-
-            const newVideoDescriptions = convertedNewVideos
-                .map(v => v.description)
-                .filter(Boolean)
-                .map(d => `- ${d}`);
-            
-            const notesWithVideoDescriptions = newVideoDescriptions.length > 0
-                ? `${currentEntry.notes}\n${newVideoDescriptions.join('\n')}`.trim()
-                : currentEntry.notes;
-
-            const allVideos = [...currentEntry.videos, ...convertedNewVideos];
-            const finalEntry = { ...currentEntry, videos: allVideos, notes: notesWithVideoDescriptions, title: currentEntry.title || `يوميات ${currentEntry.date}` };
+            const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
             const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
             onSave({ ...trip, entries: updatedEntries });
         } catch (error) {
-            console.error("Error saving entry with videos:", error);
-            setFormError("حدث خطأ أثناء معالجة وحفظ الفيديو. قد يكون حجمه كبيراً جداً.");
+            console.error("Error saving entry:", error);
+            setFormError("حدث خطأ أثناء الحفظ.");
         } finally {
             setIsProcessing(false);
         }
@@ -1062,7 +1021,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     )}
                 </div>
             )}
-            {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message={newVideos.length > 0 ? "جاري معالجة الفيديوهات..." : "جاري الحفظ..."}/></div>}
+            {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message="جاري الحفظ..."/></div>}
             
             {formError && <div className="p-4 my-2 bg-red-100 text-red-700 rounded-lg text-center">{formError}</div>}
 
@@ -1080,28 +1039,34 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 <AudioRecorder onRecordingComplete={handleNoteFromAudio} className="absolute bottom-2 left-2"/>
             </div>
 
-            <button onClick={handleSummarizeEntry} disabled={isProcessing || isAnalyzingMedia || (currentEntry.photos.length === 0 && currentEntry.videos.length === 0 && newVideos.length === 0)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+            <button onClick={handleSummarizeEntry} disabled={isProcessing || isProcessingMedia || currentEntry.photos.length === 0} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                 <Sparkles size={20}/><span>لخص لي يومي بالذكاء الاصطناعي</span>
             </button>
             
+             {isProcessingMedia && (
+                <div className="p-3 my-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded-lg text-center flex items-center justify-center gap-2">
+                    <Loader2 className="animate-spin" size={20} />
+                    <span>{processingStatus}</span>
+                </div>
+            )}
+
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
                 <div className="flex items-center gap-3">
                     <h3 className="font-bold">الصور والفيديوهات</h3>
-                    {isAnalyzingMedia && <Loader2 className="animate-spin text-primary" size={20} />}
                 </div>
-                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" />
-                <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleVideoUpload} className="hidden" />
+                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
+                <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => photoInputRef.current?.click()} disabled={isAnalyzingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
-                    <button onClick={() => videoInputRef.current?.click()} disabled={isAnalyzingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
+                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
+                    <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
                 </div>
-                {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0 || newVideos.length > 0) && (
+                {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
                     <div className="flex gap-2 overflow-x-auto pb-2">
                         {currentEntry.photos.map(p => {
                             const src = `data:image/jpeg;base64,${p.base64}`;
                             return (
                                 <div key={p.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', src })} />
+                                    <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', src })} loading="lazy" />
                                     <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }} className="absolute top-1 right-1 bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors z-10" aria-label="حذف الصورة"><X size={14} /></button>
                                     {p.lat && p.lon && (<a href={`https://www.google.com/maps?q=${p.lat},${p.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 left-1 bg-blue-500/80 text-white rounded-full p-1 hover:bg-blue-500 transition-colors z-10" aria-label="عرض الموقع على الخريطة"><MapPin size={14} /></a>)}
                                 </div>
@@ -1111,9 +1076,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                             const src = `data:${v.mimeType};base64,${v.base64}`;
                             return (
                                 <div key={v.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <div className="w-full h-full cursor-pointer" onClick={() => setFullscreenMedia({ type: 'video', src })}>
-                                        <video src={src} className="w-full h-full object-cover rounded-lg" />
-                                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-lg group-hover:bg-black/50 transition-colors"><VideoIcon className="text-white/80" size={32} /></div>
+                                    <div className="w-full h-full cursor-pointer bg-gray-900 rounded-lg flex items-center justify-center" onClick={() => setFullscreenMedia({ type: 'video', src })}>
+                                        <VideoIcon className="text-white/80" size={32} />
                                     </div>
                                     {processingVideoId === v.id && (
                                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg z-20">
@@ -1125,18 +1089,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                                         <button onClick={(e) => { e.stopPropagation(); handleMuteVideo(v.id); }} className="bg-gray-800/80 text-white rounded-full p-1 hover:bg-gray-900 transition-colors" aria-label="إزالة الصوت"><Volume2 size={14} /></button>
                                     </div>
                                     {v.lat && v.lon && (<a href={`https://www.google.com/maps?q=${v.lat},${v.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 left-1 bg-blue-500/80 text-white rounded-full p-1 hover:bg-blue-500 transition-colors z-10" aria-label="عرض الموقع على الخريطة"><MapPin size={14} /></a>)}
-                                </div>
-                            );
-                        })}
-                        {newVideos.map(v => {
-                            const src = v.previewUrl;
-                            return (
-                                <div key={v.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <div className="w-full h-full cursor-pointer" onClick={() => setFullscreenMedia({ type: 'video', src })}>
-                                        <video src={src} className="w-full h-full object-cover rounded-lg" />
-                                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-lg group-hover:bg-black/50 transition-colors"><VideoIcon className="text-white/80" size={32} /></div>
-                                    </div>
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteNewVideo(v.id); }} className="absolute top-1 right-1 bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors z-10" aria-label="حذف الفيديو"><X size={14} /></button>
                                 </div>
                             );
                         })}
@@ -1188,7 +1140,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             
             <div className="flex gap-4 pt-4">
                 <button onClick={onCancel} className="w-full p-4 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
-                <button onClick={handleSave} className="w-full p-4 bg-primary text-white rounded-lg font-semibold" disabled={isProcessing || isAnalyzingMedia}>حفظ اليومية</button>
+                <button onClick={handleSave} className="w-full p-4 bg-primary text-white rounded-lg font-semibold" disabled={isProcessing || isProcessingMedia}>حفظ اليومية</button>
             </div>
         </div>
     );
