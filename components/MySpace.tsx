@@ -1,11 +1,12 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 // FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -125,7 +126,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
         loadTrips();
     }, [loadTrips]);
 
-    const handleSaveTrip = async (tripData: Omit<Trip, 'id' | 'entries'>) => {
+    const handleSaveTrip = async (tripData: Omit<Trip, 'id' | 'entries' | 'endDate'>) => {
         const newTrip: Trip = { ...tripData, id: generateId(), entries: [] };
         await db.putTrip(newTrip);
         setTrips(prev => [newTrip, ...prev].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));
@@ -133,12 +134,12 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
         dispatchStorageUpdate();
     };
 
-    const handleUpdateTrip = async (updatedTrip: Trip) => {
+    const handleUpdateTrip = useCallback(async (updatedTrip: Trip) => {
         await db.putTrip(updatedTrip);
         setTrips(prev => prev.map(t => t.id === updatedTrip.id ? updatedTrip : t));
         setSelectedTrip(updatedTrip); // Keep selected trip updated
         dispatchStorageUpdate();
-    };
+    }, []);
 
     const handleDeleteTrip = async (tripId: string) => {
         if (window.confirm("هل أنت متأكد من حذف هذه الرحلة وكل يومياتها؟")) {
@@ -253,22 +254,43 @@ const TripAndStoryList: React.FC<{
                         <Plus /><span>إضافة رحلة جديدة</span>
                     </button>
                     {trips.length > 0
-                        ? trips.map(trip => (
-                            <div key={trip.id} onClick={() => onSelectTrip(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <h3 className="text-xl font-bold">{trip.name}</h3>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{trip.startDate} - {trip.endDate}</p>
+                        ? trips.map(trip => {
+                            const today = getLocalDateString();
+                            const isCompleted = trip.endDate && trip.endDate < today;
+                            const isActive = trip.startDate <= today && !isCompleted;
+
+                            return (
+                                <div key={trip.id} onClick={() => onSelectTrip(trip)} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h3 className="text-xl font-bold">{trip.name}</h3>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                                                {trip.startDate} {trip.endDate ? ` - ${trip.endDate}` : ''}
+                                            </p>
+                                        </div>
+                                        {isCompleted ? (
+                                            <span className="text-xs font-bold text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded-full">
+                                                مكتملة
+                                            </span>
+                                        ) : isActive ? (
+                                            <span className="text-xs font-bold text-green-700 bg-green-100 dark:bg-green-900/50 dark:text-green-300 px-2 py-1 rounded-full">
+                                                جارية
+                                            </span>
+                                        ) : (
+                                             <span className="text-xs font-bold text-blue-700 bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 px-2 py-1 rounded-full">
+                                                قادمة
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                        <span>{trip.entries.length} يوميات</span>
+                                        <div className="flex items-center gap-1 text-primary dark:text-primary-light">
+                                            <span>عرض التفاصيل</span><ChevronsRight size={16} />
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex justify-between items-center mt-2 text-sm text-gray-500 dark:text-gray-400">
-                                    <span>{trip.entries.length} يوميات</span>
-                                    <div className="flex items-center gap-1 text-primary dark:text-primary-light">
-                                        <span>عرض التفاصيل</span><ChevronsRight size={16} />
-                                    </div>
-                                </div>
-                            </div>
-                        ))
+                            );
+                        })
                         : <div className="text-center p-8 border-2 border-dashed rounded-lg text-gray-500">لم تقم بإضافة أي رحلات بعد.</div>
                     }
                 </div>
@@ -317,16 +339,14 @@ const TripAndStoryList: React.FC<{
 };
 
 
-const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries'>) => void; onCancel: () => void;}> = ({ onSave, onCancel }) => {
+const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'>) => void; onCancel: () => void;}> = ({ onSave, onCancel }) => {
     const [name, setName] = useState('');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(getLocalDateString());
     const [error, setError] = useState('');
 
     const handleSubmit = () => {
-        if (!name || !startDate || !endDate) { setError("يرجى ملء جميع الحقول."); return; }
-        if (endDate < startDate) { setError("تاريخ النهاية يجب أن يكون بعد تاريخ البداية."); return; }
-        setError(''); onSave({ name, startDate, endDate });
+        if (!name || !startDate) { setError("يرجى ملء جميع الحقول."); return; }
+        setError(''); onSave({ name, startDate });
     };
 
     return (
@@ -334,19 +354,15 @@ const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries'>) => void; 
              <h2 className="text-2xl font-bold text-center">رحلة جديدة</h2>
             {error && <p className="text-red-500 text-center">{error}</p>}
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="اسم الرحلة (مثال: رحلة سويسرا ٢٠٢٤)" className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1">
                 <div>
                     <label className="block text-sm font-medium mb-1">تاريخ البدء</label>
                     <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
                 </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">تاريخ الانتهاء</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-                </div>
             </div>
             <div className="flex gap-4">
                 <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
-                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold">حفظ الرحلة</button>
+                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold">بدء الرحلة</button>
             </div>
         </div>
     );
@@ -368,6 +384,25 @@ const TripDetails: React.FC<{
     const nameInputRef = useRef<HTMLInputElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const ENTRIES_PER_PAGE = 10;
+    
+    useEffect(() => {
+        const today = getLocalDateString();
+        const hasTodayEntry = trip.entries.some(e => e.date === today);
+
+        if (!hasTodayEntry && trip.startDate <= today && (!trip.endDate || today <= trip.endDate)) {
+            const newEntry: JournalEntry = {
+                id: generateId(),
+                date: today,
+                title: `يوميات ${today}`,
+                notes: '',
+                photos: [],
+                videos: [],
+                expenses: [],
+            };
+            const updatedTrip = { ...trip, entries: [newEntry, ...trip.entries] };
+            onUpdateTrip(updatedTrip);
+        }
+    }, [trip, onUpdateTrip]);
 
     const sortedEntries = useMemo(() => 
         trip.entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
@@ -390,6 +425,15 @@ const TripDetails: React.FC<{
         }
         setIsEditingName(false);
     };
+    
+    const handleEndTrip = () => {
+        if (window.confirm("هل أنت متأكد من إنهاء هذه الرحلة؟ لا يمكنك إضافة يوميات جديدة بعد إنهائها.")) {
+            const today = getLocalDateString();
+            onUpdateTrip({ ...trip, endDate: today });
+        }
+    };
+
+    const isOngoing = !trip.endDate || trip.endDate >= getLocalDateString();
 
     const grandTotal = trip.entries.reduce((tripSum, entry) =>
         tripSum + entry.expenses.reduce((entrySum, exp) => entrySum + exp.amountInSAR, 0),
@@ -499,9 +543,12 @@ const TripDetails: React.FC<{
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
             
-            <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
-                <Plus /><span>إضافة يوميات جديدة</span>
-            </button>
+            {isOngoing && (
+                 <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
+                    <Plus /><span>إضافة يوميات جديدة</span>
+                </button>
+            )}
+
             <div className="relative pt-8">
                  <span className="absolute top-1/2 left-0 w-full h-px bg-gray-300 dark:bg-gray-600"></span>
                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 bg-gray-50 dark:bg-gray-900 font-bold">
@@ -522,7 +569,7 @@ const TripDetails: React.FC<{
                                  <Edit size={20} />
                              </button>
                              <div className="flex-grow min-w-0 cursor-pointer" onClick={() => onEditEntry(entry)}>
-                                 <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title}</h3>
+                                 <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title || `يوميات ${entry.date}`}</h3>
                                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
                                  <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{snippet}</p>
                                  {dailyTotal > 0 && (
@@ -545,13 +592,27 @@ const TripDetails: React.FC<{
                         تحميل المزيد
                     </button>
                 )}
+                 {!isOngoing && displayedEntries.length === 0 && (
+                     <p className="text-center text-gray-500 py-4">لم يتم إضافة أي يوميات لهذه الرحلة.</p>
+                 )}
              </div>
+             {isOngoing && (
+                <div className="text-center mt-6">
+                    <button 
+                        onClick={handleEndTrip}
+                        className="flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded-lg font-semibold hover:bg-red-200 dark:hover:bg-red-900"
+                    >
+                        <CheckSquare size={18} />
+                        <span>إنهاء الرحلة</span>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
 
 const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
-    const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: new Date().toISOString().split('T')[0], title: '', notes: '', photos: [], videos: [], expenses: [] });
+    const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: getLocalDateString(), title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);

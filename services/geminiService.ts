@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI, Type, GenerateContentResponse, Chat, Modality } from "@google/genai";
 // FIX: Imported JournalImageAnalysis type.
 import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool, JournalImageAnalysis } from '../types';
@@ -1471,9 +1469,13 @@ export const generateTripNameFromLocation = async (location: { lat: number, lon:
             return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`;
         }
         return response.text.trim();
-    } catch (error) {
-        console.error("Error generating trip name from location:", error);
-        return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`; // Fallback name
+    } catch (error: any) {
+        // If the error is a specific billing/quota issue, re-throw it so the UI can handle it.
+        if (error?.message?.includes('الحصة') || error?.message?.includes('الفوترة')) {
+            throw error;
+        }
+        console.error("Error generating trip name from location (falling back):", error);
+        return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`; // Fallback name for other errors
     }
 };
 
@@ -1503,20 +1505,40 @@ export const enhancePhoto = async (base64Image: string): Promise<string | null> 
 
     if (!response) {
         console.error("Error enhancing photo: API returned undefined response.");
-        return null;
+        throw new Error("API returned an undefined response.");
     }
     
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-            return part.inlineData.data;
+    const candidate = response.candidates?.[0];
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+                return part.inlineData.data;
+            }
         }
     }
-    
-    console.error("Error enhancing photo: No image data found in the response.");
-    return null;
+
+    const errorText = response.text?.trim();
+    const finishReason = candidate?.finishReason;
+    const blockReason = response.promptFeedback?.blockReason;
+
+    let errorMessage = "فشل تحسين الصورة: لم يتم العثور على بيانات الصورة في الاستجابة.";
+    if (errorText) {
+        errorMessage = `فشل تحسين الصورة: ${errorText}`;
+    } else if (blockReason) {
+        errorMessage = `تم حظر الطلب بسبب: ${blockReason}`;
+    } else if (finishReason && finishReason !== 'STOP') {
+        errorMessage = `انتهى الطلب بشكل غير متوقع: ${finishReason}`;
+    }
+
+    console.error("Error enhancing photo:", errorMessage, { response });
+    throw new Error(errorMessage);
+
   } catch (error) {
-    console.error("Error enhancing photo:", error);
-    return null;
+    console.error("Error during photo enhancement:", error);
+    if (error instanceof Error) {
+        throw error;
+    }
+    throw new Error("An unknown error occurred during photo enhancement.");
   }
 };
 
@@ -1579,4 +1601,78 @@ export const analyzeAudioForJournal = async (audioBase64: string, mimeType: stri
         console.error("Error analyzing audio for journal:", error);
         return null;
     }
+};
+
+export const editImage = async (
+  base64Image: string,
+  prompt: string,
+  maskBase64?: string
+): Promise<string | null> => {
+  const parts: any[] = [
+    {
+      inlineData: {
+        data: base64Image,
+        mimeType: 'image/jpeg',
+      },
+    },
+  ];
+
+  if (maskBase64) {
+    parts.push({
+      inlineData: {
+        data: maskBase64,
+        mimeType: 'image/png',
+      },
+    });
+  }
+
+  parts.push({ text: prompt });
+
+  try {
+    const response = await generateContentWithRetry({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts },
+      config: {
+        responseModalities: [Modality.IMAGE],
+      },
+    });
+
+    if (!response) {
+      console.error("Error editing image: API returned undefined response.");
+      throw new Error("API returned an undefined response.");
+    }
+    
+    const candidate = response.candidates?.[0];
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+                return part.inlineData.data;
+            }
+        }
+    }
+
+    const errorText = response.text?.trim();
+    const finishReason = candidate?.finishReason;
+    const blockReason = response.promptFeedback?.blockReason;
+
+    let errorMessage = "فشل تحرير الصورة: لم يتم العثور على بيانات الصورة في الاستجابة.";
+    
+    if (errorText) {
+        errorMessage = `فشل تحرير الصورة: ${errorText}`;
+    } else if (blockReason) {
+        errorMessage = `تم حظر الطلب بسبب: ${blockReason}`;
+    } else if (finishReason && finishReason !== 'STOP') {
+        errorMessage = `انتهى الطلب بشكل غير متوقع: ${finishReason}`;
+    }
+    
+    console.error("Error editing image:", errorMessage, { response });
+    throw new Error(errorMessage);
+
+  } catch (error) {
+    console.error("Error during image edit process:", error);
+    if (error instanceof Error) {
+        throw error;
+    }
+    throw new Error("An unknown error occurred during image editing.");
+  }
 };

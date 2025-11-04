@@ -1,4 +1,5 @@
 
+
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -458,4 +459,11 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
             reject(error instanceof Error ? error : new Error(String(error)));
         }
     });
+};
+
+export const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };

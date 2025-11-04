@@ -1,15 +1,18 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo } from '../utils/helpers';
+import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 import QuickAudioModal from './common/QuickAudioModal';
-import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Loader2, XCircle, Save, Volume2, VolumeX, Sparkles, RotateCcw } from 'lucide-react';
+import ImageEditor from './ImageEditor'; // Import the new editor component
+import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Loader2, XCircle, Save, Volume2, VolumeX, Sparkles, Edit } from 'lucide-react';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-type CapturedMedia = {
+export type CapturedMedia = {
     type: 'photo' | 'video';
     objectUrl: string;
     base64: string;
@@ -34,13 +37,11 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  // Preview and enhancement state
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(null);
   const [shouldMuteVideo, setShouldMuteVideo] = useState(false);
-  const [isEnhancing, setIsEnhancing] = useState(false);
-  const [originalPhotoBeforeEnhance, setOriginalPhotoBeforeEnhance] = useState<string | null>(null);
-  const [showOriginal, setShowOriginal] = useState(false);
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
+  
+  const [viewMode, setViewMode] = useState<'capture' | 'preview' | 'edit'>('capture');
 
 
   useEffect(() => {
@@ -52,9 +53,9 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   }, [capturedMedia]);
   
   const getOrCreateActiveJournalObjects = async (): Promise<{ trip: Trip; entry: JournalEntry; }> => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const allTrips = await db.getAllTrips();
-    let activeTrip = allTrips.find(t => t.startDate <= today && t.endDate >= today);
+    let activeTrip = allTrips.find(t => t.startDate <= today && (!t.endDate || t.endDate >= today));
 
     if (!activeTrip) {
       if (!location) throw new Error("لا يمكن إنشاء رحلة جديدة بدون موقع.");
@@ -62,7 +63,6 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
       const newTrip: Trip = {
         id: generateId(), name: tripName,
         startDate: today,
-        endDate: new Date(new Date().setDate(new Date().getDate() + 7)).toISOString().split('T')[0],
         entries: [],
       };
       await db.putTrip(newTrip);
@@ -97,6 +97,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         } else if (file.type.startsWith('video/')) {
             setCapturedMedia({ type: 'video', objectUrl, base64, blob: file, mimeType: file.type });
         }
+        setViewMode('preview');
     } catch (err) {
         console.error("Error handling media select:", err);
         setError("فشلت معالجة الملف الملتقط.");
@@ -112,53 +113,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     }
     setCapturedMedia(null);
     setShouldMuteVideo(false);
-    setOriginalPhotoBeforeEnhance(null);
-  };
-
-  const handleEnhancePhoto = async () => {
-    if (!capturedMedia || capturedMedia.type !== 'photo') return;
-    
-    setIsEnhancing(true);
-    setError(null);
-    try {
-        const enhancedBase64 = await geminiService.enhancePhoto(capturedMedia.base64);
-        if (enhancedBase64) {
-            const byteCharacters = atob(enhancedBase64);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'image/jpeg' });
-            const newObjectUrl = URL.createObjectURL(blob);
-            
-            setOriginalPhotoBeforeEnhance(capturedMedia.base64);
-            URL.revokeObjectURL(capturedMedia.objectUrl);
-            
-            setCapturedMedia({ ...capturedMedia, base64: enhancedBase64, objectUrl: newObjectUrl, blob });
-        } else {
-            setError("فشل تحسين الصورة. حاول مرة أخرى.");
-        }
-    } catch (error) {
-        console.error("Error enhancing photo:", error);
-        setError("حدث خطأ غير متوقع أثناء تحسين الصورة.");
-    } finally {
-        setIsEnhancing(false);
-    }
-  };
-  
-  const handleUndoEnhance = () => {
-    if (!originalPhotoBeforeEnhance || !capturedMedia) return;
-    
-    const byteCharacters = atob(originalPhotoBeforeEnhance);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
-    const newObjectUrl = URL.createObjectURL(blob);
-    
-    URL.revokeObjectURL(capturedMedia.objectUrl);
-    
-    setCapturedMedia({ ...capturedMedia, base64: originalPhotoBeforeEnhance, objectUrl: newObjectUrl, blob });
-    setOriginalPhotoBeforeEnhance(null);
+    setViewMode('capture');
   };
 
   const handleSaveMedia = async () => {
@@ -204,6 +159,31 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         handleDiscardMedia();
     }
   };
+  
+  const handleFinishEditing = (newBase64: string | null) => {
+    if (newBase64 && capturedMedia && capturedMedia.type === 'photo') {
+        // Create new blob and object URL from the edited base64
+        const byteCharacters = atob(newBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const newBlob = new Blob([byteArray], { type: 'image/jpeg' });
+        const newObjectUrl = URL.createObjectURL(newBlob);
+
+        // Clean up old object URL
+        URL.revokeObjectURL(capturedMedia.objectUrl);
+
+        setCapturedMedia({
+            ...capturedMedia,
+            base64: newBase64,
+            blob: newBlob,
+            objectUrl: newObjectUrl
+        });
+    }
+    setViewMode('preview');
+  };
 
   const handleAudioAnalyzed = async (analysis: any) => {
     if (!location) return;
@@ -227,74 +207,53 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     }
   };
   
-  if (capturedMedia) {
-    const previewSrc = showOriginal && originalPhotoBeforeEnhance 
-      ? `data:image/jpeg;base64,${originalPhotoBeforeEnhance}`
-      : capturedMedia.objectUrl;
+    if (viewMode === 'edit' && capturedMedia?.type === 'photo') {
+        return (
+            <ImageEditor
+                media={capturedMedia}
+                onSave={handleFinishEditing}
+                onCancel={() => setViewMode('preview')}
+            />
+        );
+    }
 
+  if (viewMode === 'preview' && capturedMedia) {
     return (
         <div className="absolute inset-0 bg-black z-20 grid grid-rows-[1fr_auto] animate-fade-in">
             {isProcessing && <div className="absolute inset-0 bg-black/70 z-40 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري الحفظ...</p></div>}
-            {isEnhancing && <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري تحسين الصورة بالذكاء الاصطناعي...</p></div>}
             
             <div className="relative min-h-0">
-                {capturedMedia.type === 'photo' && (
-                    <div 
-                      className="relative w-full h-full"
-                      onMouseDown={() => {if(originalPhotoBeforeEnhance) setShowOriginal(true)}}
-                      onMouseUp={() => setShowOriginal(false)}
-                      onTouchStart={() => {if(originalPhotoBeforeEnhance) setShowOriginal(true)}}
-                      onTouchEnd={() => setShowOriginal(false)}
-                    >
-                        <img src={previewSrc} alt="Preview" className="w-full h-full object-contain" />
-                        {originalPhotoBeforeEnhance && (
-                            <div className={`absolute inset-0 flex items-center justify-center text-white text-lg font-bold bg-black/50 transition-opacity duration-300 ${showOriginal ? 'opacity-100' : 'opacity-0'}`}>
-                                قبل
-                            </div>
-                        )}
-                    </div>
-                )}
-                {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-contain" />}
-                {originalPhotoBeforeEnhance && (
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-semibold z-10">
-                        اضغط مطولاً لرؤية النسخة الأصلية
-                    </div>
+                {capturedMedia.type === 'photo' ? (
+                    <img src={capturedMedia.objectUrl} alt="Preview" className="w-full h-full object-contain" />
+                ) : (
+                    <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-contain" />
                 )}
             </div>
             
             <div className="p-6 bg-gradient-to-t from-black/70 to-transparent z-10">
                 <div className="w-full flex justify-around items-center">
-                    <button onClick={handleDiscardMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                    <button onClick={handleDiscardMedia} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                         <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"><XCircle size={32}/></div>
                         <span className="text-sm font-semibold">تجاهل</span>
                     </button>
-                    <button onClick={handleSaveMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                    <button onClick={handleSaveMedia} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                         <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center"><Save size={32}/></div>
                         <span className="text-sm font-semibold">حفظ</span>
                     </button>
                     {capturedMedia.type === 'video' ? (
-                         <button onClick={() => setShouldMuteVideo(p => !p)} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                         <button onClick={() => setShouldMuteVideo(p => !p)} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                             <div className={`w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-colors ${shouldMuteVideo ? 'text-red-400' : ''}`}>
                                 {shouldMuteVideo ? <VolumeX size={32}/> : <Volume2 size={32}/>}
                             </div>
-                            <span className="text-sm font-semibold">{shouldMuteVideo ? 'مكتوم' : 'الصوت'}</span>
+                            <span className="text-sm font-semibold">{shouldMuteVideo ? 'كتم الصوت' : 'مع صوت'}</span>
                         </button>
                     ) : capturedMedia.type === 'photo' ? (
-                        originalPhotoBeforeEnhance ? (
-                             <button onClick={handleUndoEnhance} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
-                                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
-                                    <RotateCcw size={32}/>
-                                </div>
-                                <span className="text-sm font-semibold">تراجع</span>
-                            </button>
-                        ) : (
-                            <button onClick={handleEnhancePhoto} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
-                                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
-                                    <Sparkles size={32}/>
-                                </div>
-                                <span className="text-sm font-semibold">تحسين</span>
-                            </button>
-                        )
+                        <button onClick={() => setViewMode('edit')} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                            <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
+                                <Edit size={32}/>
+                            </div>
+                            <span className="text-sm font-semibold">تحرير</span>
+                        </button>
                     ) : (
                         <div className="w-16 h-16" />
                     )}

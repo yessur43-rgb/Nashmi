@@ -173,7 +173,7 @@ export interface Trip {
     id: string;
     name: string;
     startDate: string;
-    endDate: string;
+    endDate?: string;
     entries: JournalEntry[];
     exportedStoryHtml?: string;
 }
