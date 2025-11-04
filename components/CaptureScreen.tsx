@@ -1,20 +1,19 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, generateVideoThumbnail, getSupportedVideoMimeType, removeAudioFromVideo } from '../utils/helpers';
+import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
-import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff, XCircle, Save, Volume2, VolumeX, MicOff, Sparkles, RotateCcw } from 'lucide-react';
+import QuickAudioModal from './common/QuickAudioModal';
+import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Loader2, XCircle, Save, Volume2, VolumeX, Sparkles, RotateCcw } from 'lucide-react';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 type CapturedMedia = {
-    type: 'photo' | 'video' | 'audio';
+    type: 'photo' | 'video';
     objectUrl: string;
     base64: string;
-    blob?: Blob;
+    blob: Blob;
     mimeType?: string;
 };
 
@@ -29,112 +28,20 @@ interface CaptureScreenProps {
 
 const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode, toggleDarkMode, onOpenApiKeyModal, location, locationError }) => {
   const [isToolsDrawerOpen, setIsToolsDrawerOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-
-  const [activeMode, setActiveMode] = useState<'photo' | 'video' | 'audio'>('photo');
-  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [isFlashOn, setIsFlashOn] = useState(false);
-  const [captureIndicator, setCaptureIndicator] = useState(false);
-  
-  const [recordingTime, setRecordingTime] = useState(0);
-  const timerIntervalRef = useRef<number | null>(null);
-  
+  const [error, setError] = useState<string | null>(null);
+
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+
   // Preview and enhancement state
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(null);
   const [shouldMuteVideo, setShouldMuteVideo] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [originalPhotoBeforeEnhance, setOriginalPhotoBeforeEnhance] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
 
-  // Zoom state
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [zoomCapabilities, setZoomCapabilities] = useState<{min: number, max: number, step: number} | null>(null);
-  const availableZoomLevels = [0.5, 1, 2];
-
-  useEffect(() => {
-    if (isRecording && (activeMode === 'video' || activeMode === 'audio')) {
-        setRecordingTime(0);
-        timerIntervalRef.current = window.setInterval(() => {
-            setRecordingTime(prevTime => prevTime + 1);
-        }, 1000);
-    } else {
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
-        }
-        setRecordingTime(0);
-    }
-
-    return () => {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
-  }, [isRecording, activeMode]);
-
-  const formatTime = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
-  };
-
-  const stopCameraStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setZoomCapabilities(null);
-  };
-  
-  const startCameraStream = async () => {
-    if (capturedMedia) return;
-    stopCameraStream();
-    setCameraError(null);
-    try {
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: facingMode,
-          aspectRatio: 16 / 9,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: activeMode === 'video'
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      const videoTrack = stream.getVideoTracks()[0];
-      // @ts-ignore
-      if (videoTrack.getCapabilities && videoTrack.getCapabilities().zoom) {
-         // @ts-ignore
-        setZoomCapabilities(videoTrack.getCapabilities().zoom);
-      }
-      setZoomLevel(1);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch (err: any) {
-      console.error("Camera error:", err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError('تم رفض الوصول إلى الكاميرا. يرجى تمكين الإذن في إعدادات متصفحك.');
-      } else {
-        setCameraError('لا يمكن الوصول إلى الكاميرا. قد تكون قيد الاستخدام من قبل تطبيق آخر.');
-      }
-    }
-  };
-
-  useEffect(() => {
-    setIsFlashOn(false);
-    if (!capturedMedia) {
-        startCameraStream();
-    }
-    return () => stopCameraStream();
-  }, [facingMode, activeMode, capturedMedia]);
 
   useEffect(() => {
     return () => {
@@ -144,35 +51,6 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     };
   }, [capturedMedia]);
   
-  const toggleFlash = async () => {
-    if (streamRef.current) {
-        const videoTrack = streamRef.current.getVideoTracks()[0];
-        const capabilities = videoTrack.getCapabilities();
-        // @ts-ignore
-        if (capabilities.torch) {
-            try {
-                // @ts-ignore
-                await videoTrack.applyConstraints({ advanced: [{ torch: !isFlashOn }] });
-                setIsFlashOn(!isFlashOn);
-            } catch (err) { console.error("Failed to toggle flash:", err); }
-        }
-    }
-  };
-  
-  const handleZoomChange = async (newZoom: number) => {
-    if (!streamRef.current || !zoomCapabilities) return;
-    if (newZoom >= zoomCapabilities.min && newZoom <= zoomCapabilities.max) {
-      const videoTrack = streamRef.current.getVideoTracks()[0];
-      try {
-        // @ts-ignore
-        await videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
-        setZoomLevel(newZoom);
-      } catch (err) {
-        console.error("Failed to apply zoom:", err);
-      }
-    }
-  };
-
   const getOrCreateActiveJournalObjects = async (): Promise<{ trip: Trip; entry: JournalEntry; }> => {
     const today = new Date().toISOString().split('T')[0];
     const allTrips = await db.getAllTrips();
@@ -203,94 +81,28 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     return { trip: activeTrip, entry: todayEntry };
   };
 
-  const handleTakePhoto = async () => {
-    if (!videoRef.current) return;
-    setCaptureIndicator(true);
-    setTimeout(() => setCaptureIndicator(false), 200);
+  const handleMediaSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    
-    canvas.toBlob(async (blob) => {
-        if (blob) {
-            const objectUrl = URL.createObjectURL(blob);
-            const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-            setCapturedMedia({ type: 'photo', objectUrl, base64 });
-            stopCameraStream();
-        }
-    }, 'image/jpeg', 0.9);
-  };
+    setIsProcessing(true);
+    setError(null);
 
-  const handleToggleVideoRecording = () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-    } else {
-      if (!streamRef.current) return;
-      setIsRecording(true);
-      const options = getSupportedVideoMimeType();
-      mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
-      audioChunksRef.current = [];
-      mediaRecorderRef.current.ondataavailable = e => audioChunksRef.current.push(e.data);
-      mediaRecorderRef.current.onstop = async () => {
-        setIsRecording(false);
-        const mimeType = mediaRecorderRef.current?.mimeType || 'video/webm';
-        const videoBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (videoBlob.size === 0) {
-            console.warn("Video recording resulted in an empty file. Discarding.");
-            setCameraError("فشل تسجيل الفيديو. قد يكون التسجيل قصيرًا جدًا.");
-            setIsRecording(false);
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            setRecordingTime(0);
-            return;
+    try {
+        const objectUrl = URL.createObjectURL(file);
+        const base64 = await blobToBase64(file);
+        
+        if (file.type.startsWith('image/')) {
+            setCapturedMedia({ type: 'photo', objectUrl, base64, blob: file });
+        } else if (file.type.startsWith('video/')) {
+            setCapturedMedia({ type: 'video', objectUrl, base64, blob: file, mimeType: file.type });
         }
-        const objectUrl = URL.createObjectURL(videoBlob);
-        const base64 = await blobToBase64(videoBlob);
-        setCapturedMedia({ type: 'video', objectUrl, base64, blob: videoBlob, mimeType });
-        stopCameraStream();
-      };
-      mediaRecorderRef.current.start();
-    }
-  };
-  
-  const handleToggleAudioRecording = async () => {
-    if (isRecording) {
-        mediaRecorderRef.current?.stop();
-    } else {
-        setIsRecording(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            streamRef.current = stream;
-            const options = getSupportedVideoMimeType();
-            mediaRecorderRef.current = new MediaRecorder(stream, options);
-            audioChunksRef.current = [];
-            mediaRecorderRef.current.ondataavailable = e => audioChunksRef.current.push(e.data);
-            mediaRecorderRef.current.onstop = async () => {
-                setIsRecording(false);
-                stopCameraStream();
-                const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
-                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-                if (audioBlob.size === 0) {
-                    console.warn("Audio recording resulted in an empty file. Discarding.");
-                    setCameraError("فشل تسجيل الصوت. قد يكون التسجيل قصيرًا جدًا.");
-                    setIsRecording(false);
-                    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-                    setRecordingTime(0);
-                    return;
-                }
-                const objectUrl = URL.createObjectURL(audioBlob);
-                const base64 = await blobToBase64(audioBlob);
-                setCapturedMedia({ type: 'audio', objectUrl, base64, blob: audioBlob, mimeType });
-            };
-            mediaRecorderRef.current.start();
-        } catch (err) {
-            console.error(err);
-            setCameraError('يرجى تمكين الوصول إلى الميكروفون.');
-            setIsRecording(false);
-        }
+    } catch (err) {
+        console.error("Error handling media select:", err);
+        setError("فشلت معالجة الملف الملتقط.");
+    } finally {
+        setIsProcessing(false);
+        event.target.value = ''; // Reset input
     }
   };
 
@@ -307,7 +119,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     if (!capturedMedia || capturedMedia.type !== 'photo') return;
     
     setIsEnhancing(true);
-    setCameraError(null);
+    setError(null);
     try {
         const enhancedBase64 = await geminiService.enhancePhoto(capturedMedia.base64);
         if (enhancedBase64) {
@@ -321,13 +133,13 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             setOriginalPhotoBeforeEnhance(capturedMedia.base64);
             URL.revokeObjectURL(capturedMedia.objectUrl);
             
-            setCapturedMedia({ ...capturedMedia, base64: enhancedBase64, objectUrl: newObjectUrl });
+            setCapturedMedia({ ...capturedMedia, base64: enhancedBase64, objectUrl: newObjectUrl, blob });
         } else {
-            setCameraError("فشل تحسين الصورة. حاول مرة أخرى.");
+            setError("فشل تحسين الصورة. حاول مرة أخرى.");
         }
     } catch (error) {
         console.error("Error enhancing photo:", error);
-        setCameraError("حدث خطأ غير متوقع أثناء تحسين الصورة.");
+        setError("حدث خطأ غير متوقع أثناء تحسين الصورة.");
     } finally {
         setIsEnhancing(false);
     }
@@ -345,10 +157,9 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     
     URL.revokeObjectURL(capturedMedia.objectUrl);
     
-    setCapturedMedia({ ...capturedMedia, base64: originalPhotoBeforeEnhance, objectUrl: newObjectUrl });
+    setCapturedMedia({ ...capturedMedia, base64: originalPhotoBeforeEnhance, objectUrl: newObjectUrl, blob });
     setOriginalPhotoBeforeEnhance(null);
   };
-
 
   const handleSaveMedia = async () => {
     if (!capturedMedia || !location) return;
@@ -383,41 +194,36 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, description, lat: location.lat, lon: location.lon };
             entry.videos.push(newVideo);
             if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
-        } else if (capturedMedia.type === 'audio') {
-            const analysis = await geminiService.analyzeAudioForJournal(capturedMedia.base64, capturedMedia.mimeType || 'audio/webm');
-            if (analysis?.type === 'note') {
-                entry.notes = (entry.notes ? `${entry.notes}\n${analysis.data.transcription}` : analysis.data.transcription).trim();
-            } else if (analysis?.type === 'expense') {
-                const processed = await geminiService.processExpense({ text: analysis.data.amountText });
-                if (processed) {
-                    const newExpense: Expense = { id: generateId(), description: analysis.data.description, ...processed };
-                    entry.expenses.push(newExpense);
-                }
-            }
         }
         await db.putTrip(trip);
     } catch (error) {
         console.error("Error processing media:", error);
-        setCameraError(error instanceof Error ? error.message : 'حدث خطأ أثناء معالجة المحتوى.');
+        setError(error instanceof Error ? error.message : 'حدث خطأ أثناء معالجة المحتوى.');
     } finally {
         setIsProcessing(false);
         handleDiscardMedia();
     }
   };
 
-  const renderCaptureButton = () => {
-    const isCaptureDisabled = isProcessing || !location;
-    switch (activeMode) {
-      case 'photo':
-        return <button onClick={handleTakePhoto} disabled={isCaptureDisabled} className="w-20 h-20 bg-white rounded-full border-4 border-gray-300 disabled:opacity-50" aria-label="التقاط صورة" />;
-      case 'video':
-        return <button onClick={handleToggleVideoRecording} disabled={isCaptureDisabled} className="w-20 h-20 bg-white rounded-full border-4 border-gray-300 flex items-center justify-center disabled:opacity-50" aria-label="تسجيل فيديو">
-          <div className={`w-12 h-12 bg-red-500 transition-all duration-200 ${isRecording ? 'rounded-md' : 'rounded-full'}`} />
-        </button>;
-      case 'audio':
-        return <button onClick={handleToggleAudioRecording} disabled={isCaptureDisabled} className="w-20 h-20 bg-white rounded-full border-4 border-gray-300 flex items-center justify-center text-red-500 disabled:opacity-50" aria-label="تسجيل صوت">
-           {isRecording ? <MicOff size={36} className="animate-pulse" /> : <Mic size={36} />}
-        </button>;
+  const handleAudioAnalyzed = async (analysis: any) => {
+    if (!location) return;
+    setIsProcessing(true);
+    try {
+        const { trip, entry } = await getOrCreateActiveJournalObjects();
+        if (analysis?.type === 'note') {
+            entry.notes = (entry.notes ? `${entry.notes}\n${analysis.data.transcription}` : analysis.data.transcription).trim();
+        } else if (analysis?.type === 'expense') {
+            const processed = await geminiService.processExpense({ text: analysis.data.amountText });
+            if (processed) {
+                const newExpense: Expense = { id: generateId(), description: analysis.data.description, ...processed };
+                entry.expenses.push(newExpense);
+            }
+        }
+        await db.putTrip(trip);
+    } catch (error) {
+        console.error("Error saving audio analysis:", error);
+    } finally {
+        setIsProcessing(false);
     }
   };
   
@@ -449,7 +255,6 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                     </div>
                 )}
                 {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-cover" />}
-                {capturedMedia.type === 'audio' && <div className="w-full h-full flex flex-col items-center justify-center gap-4"><Mic size={80} className="text-primary"/><audio src={capturedMedia.objectUrl} controls autoPlay className="w-full max-w-sm" /></div>}
             </div>
             {originalPhotoBeforeEnhance && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-semibold">
@@ -499,86 +304,71 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   }
 
   return (
-    <div className="relative w-screen h-screen bg-black text-white overflow-hidden">
-      <ToolsDrawer isOpen={isToolsDrawerOpen} onClose={() => setIsToolsDrawerOpen(false)} onSelectTool={onSelectTool} />
-      {activeMode !== 'audio' && (
-        <>
-            <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
-            <div className={`absolute inset-0 bg-white transition-opacity duration-200 ${captureIndicator ? 'opacity-80' : 'opacity-0'}`} style={{ pointerEvents: 'none' }} />
-        </>
-      )}
-      {activeMode === 'audio' && (
-          <div className="w-full h-full bg-gray-900 flex flex-col items-center justify-center gap-4">
-              <Mic size={128} className={`transition-colors duration-300 ${isRecording ? 'text-red-500 animate-pulse' : 'text-primary'}`} />
-              <p className="text-xl font-semibold">{isRecording ? "جاري التسجيل..." : "جاهز للتسجيل الصوتي"}</p>
-              {isRecording && <p className="font-mono text-lg">{formatTime(recordingTime)}</p>}
-          </div>
-      )}
-      {cameraError && (
-        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center p-4 text-center">
-          <AlertTriangle size={64} className="text-red-500 mb-4" />
-          <h2 className="text-xl font-bold mb-2">حدث خطأ</h2>
-          <p className="text-gray-400">{cameraError}</p>
-          <button onClick={startCameraStream} className="mt-4 px-4 py-2 bg-primary rounded-lg"> حاول مرة أخرى</button>
-        </div>
-      )}
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        {isAudioModalOpen && <QuickAudioModal onClose={() => setIsAudioModalOpen(false)} onAudioAnalyzed={handleAudioAnalyzed} />}
+        
+        <input type="file" accept="image/*" capture="environment" ref={photoInputRef} onChange={handleMediaSelect} className="hidden" />
+        <input type="file" accept="video/*" capture="environment" ref={videoInputRef} onChange={handleMediaSelect} className="hidden" />
 
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/60 to-transparent z-10">
-        <div className="flex items-center gap-2">
-            <button onClick={toggleDarkMode} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><Sun/></button>
-            <button onClick={onOpenApiKeyModal} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><Key/></button>
-        </div>
-         {isRecording && (activeMode === 'video' || activeMode === 'audio') && (
-            <div className="bg-red-500 text-white px-3 py-1 rounded-full font-mono text-sm flex items-center gap-2 animate-pulse">
-                <Circle fill="white" size={8} />
-                <span>{formatTime(recordingTime)}</span>
+        <header className="flex-shrink-0 p-4 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+                <button onClick={toggleDarkMode} className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full"><Sun/></button>
+                <button onClick={onOpenApiKeyModal} className="p-2 bg-gray-200 dark:bg-gray-800 rounded-full"><Key/></button>
             </div>
-        )}
-        <div className="flex items-center gap-2">
-          {activeMode !== 'audio' &&
-            <button onClick={toggleFlash} className={`p-2 bg-black/30 rounded-full backdrop-blur-sm ${isFlashOn ? 'text-yellow-400' : 'text-white'}`}>
-                {isFlashOn ? <ZapOff /> : <Zap />}
-            </button>
-          }
-          <button onClick={() => setFacingMode(p => p === 'user' ? 'environment' : 'user')} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><FlipHorizontal /></button>
-        </div>
-      </div>
-      
-      <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center gap-4 bg-gradient-to-t from-black/70 to-transparent">
-        {zoomCapabilities && activeMode !== 'audio' && (
-          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm p-1 rounded-full text-xs font-bold">
-            {availableZoomLevels.map(level => {
-              const isSupported = level >= zoomCapabilities.min && level <= zoomCapabilities.max;
-              return (
-                <button
-                  key={level}
-                  onClick={() => handleZoomChange(level)}
-                  disabled={!isSupported}
-                  className={`w-10 h-10 rounded-full transition-colors ${zoomLevel === level ? 'bg-white/30' : ''} disabled:opacity-50 disabled:text-gray-400`}
+            <h1 className="text-2xl font-bold font-sans">ZAD | زاد</h1>
+            <div className="w-20"></div> {/* Spacer */}
+        </header>
+        
+        <main className="flex-grow flex flex-col justify-center items-center p-6 text-center">
+            {isProcessing && <Loader2 className="animate-spin mb-4 text-primary" size={48} />}
+            {error && <div className="p-3 mb-4 bg-red-100 text-red-700 rounded-lg flex items-center gap-2"><AlertTriangle size={18}/> {error}</div>}
+            
+            <h2 className="text-3xl font-bold mb-2">أهلاً بك</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-8">ماذا تريد أن تفعل الآن؟</p>
+
+            <div className="w-full max-w-sm space-y-4">
+                <button 
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={isProcessing || !location}
+                    className="w-full h-24 bg-blue-500 text-white rounded-2xl shadow-lg flex items-center justify-center gap-4 text-2xl font-bold hover:bg-blue-600 transition-transform transform hover:scale-105 disabled:opacity-50"
                 >
-                  {level}x
+                    <Camera size={32} />
+                    <span>التقط صورة</span>
                 </button>
-              );
-            })}
-          </div>
-        )}
-        <div className="bg-black/40 backdrop-blur-sm p-1 rounded-full flex items-center gap-1 text-sm font-semibold">
-          <button onClick={() => setActiveMode('photo')} className={`px-4 py-2 rounded-full ${activeMode === 'photo' && 'bg-white/20'}`}>صورة</button>
-          <button onClick={() => setActiveMode('video')} className={`px-4 py-2 rounded-full ${activeMode === 'video' && 'bg-white/20'}`}>فيديو</button>
-          <button onClick={() => setActiveMode('audio')} className={`px-4 py-2 rounded-full ${activeMode === 'audio' && 'bg-white/20'}`}>صوت</button>
-        </div>
-        <div className="w-full flex justify-around items-center">
-            <button onClick={() => onSelectTool(Tool.MySpace)} className="flex flex-col items-center gap-1">
-                <div className="w-14 h-14 bg-black/30 backdrop-blur-sm rounded-full flex items-center justify-center"><User size={28}/></div>
-                <span className="text-xs font-bold">مساحتي</span>
-            </button>
-            {renderCaptureButton()}
-            <button onClick={() => setIsToolsDrawerOpen(true)} className="flex flex-col items-center gap-1">
-                <div className="w-14 h-14 bg-black/30 backdrop-blur-sm rounded-full flex items-center justify-center"><Grid3X3 size={28}/></div>
-                <span className="text-xs font-bold">الأدوات</span>
-            </button>
-        </div>
-      </div>
+                <button 
+                    onClick={() => videoInputRef.current?.click()}
+                    disabled={isProcessing || !location}
+                    className="w-full h-24 bg-purple-500 text-white rounded-2xl shadow-lg flex items-center justify-center gap-4 text-2xl font-bold hover:bg-purple-600 transition-transform transform hover:scale-105 disabled:opacity-50"
+                >
+                    <Video size={32} />
+                    <span>سجل فيديو</span>
+                </button>
+                 <button 
+                    onClick={() => setIsAudioModalOpen(true)}
+                    disabled={isProcessing}
+                    className="w-full h-24 bg-red-500 text-white rounded-2xl shadow-lg flex items-center justify-center gap-4 text-2xl font-bold hover:bg-red-600 transition-transform transform hover:scale-105 disabled:opacity-50"
+                >
+                    <Mic size={32} />
+                    <span>ملاحظة صوتية</span>
+                </button>
+            </div>
+            {!location && locationError && <p className="text-sm text-red-500 mt-4">{locationError}</p>}
+        </main>
+        
+        <footer className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex justify-around items-center">
+                <button onClick={() => onSelectTool(Tool.MySpace)} className="flex flex-col items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-primary dark:hover:text-primary-light">
+                    <User size={28}/>
+                    <span className="text-xs font-bold">مساحتي</span>
+                </button>
+                <button onClick={() => setIsToolsDrawerOpen(true)} className="flex flex-col items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-primary dark:hover:text-primary-light">
+                    <Grid3X3 size={28}/>
+                    <span className="text-xs font-bold">الأدوات</span>
+                </button>
+            </div>
+        </footer>
+
+        <ToolsDrawer isOpen={isToolsDrawerOpen} onClose={() => setIsToolsDrawerOpen(false)} onSelectTool={onSelectTool} />
     </div>
   );
 };
