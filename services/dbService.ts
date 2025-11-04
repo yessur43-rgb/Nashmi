@@ -13,81 +13,80 @@ const FAV_PLACES_STORE = 'favorite_places';
 const FAV_ROUTE_PLACES_STORE = 'favorite_route_places';
 const SETTINGS_STORE = 'settings';
 
-let db: IDBDatabase | null = null;
+let dbPromise: Promise<IDBDatabase> | null = null;
 
 const getDb = (): Promise<IDBDatabase> => {
-    return new Promise((resolve, reject) => {
-        if (db) {
-            return resolve(db);
-        }
-        
-        console.log("Attempting to open IndexedDB connection...");
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+    if (!dbPromise) {
+        dbPromise = new Promise((resolve, reject) => {
+            console.log("Attempting to open IndexedDB connection...");
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        request.onerror = () => {
-            console.error('Database open error:', request.error);
-            reject(new Error(`Failed to open database. Error: ${request.error?.name}`));
-        };
+            request.onerror = () => {
+                console.error('Database open error:', request.error);
+                dbPromise = null; // Clear the promise on error to allow retries
+                reject(new Error(`Failed to open database. Error: ${request.error?.name}`));
+            };
 
-        request.onsuccess = () => {
-            console.log("Database connection successful.");
-            db = request.result;
+            request.onsuccess = () => {
+                console.log("Database connection successful.");
+                const db = request.result;
 
-            db.onversionchange = () => {
-                console.warn('Database version change detected. Closing connection to allow upgrade.');
-                if (db) {
+                db.onversionchange = () => {
+                    console.warn('Database version change detected. Closing connection to allow upgrade.');
                     db.close();
+                    dbPromise = null; // Invalidate the promise so a new connection is opened
+                };
+
+                db.onclose = () => {
+                    console.warn('Database connection closed.');
+                    dbPromise = null; // Invalidate the promise
+                };
+                
+                resolve(db);
+            };
+
+            request.onupgradeneeded = (event) => {
+                console.log("Database upgrade required.");
+                const upgradeDb = (event.target as IDBOpenDBRequest).result;
+                
+                if (!upgradeDb.objectStoreNames.contains(TRIPS_STORE)) {
+                     console.log(`Creating object store: ${TRIPS_STORE}`);
+                    upgradeDb.createObjectStore(TRIPS_STORE, { keyPath: 'id' });
                 }
-                db = null;
+                if (!upgradeDb.objectStoreNames.contains(ACCOMMODATIONS_STORE)) {
+                    console.log(`Creating object store: ${ACCOMMODATIONS_STORE}`);
+                    upgradeDb.createObjectStore(ACCOMMODATIONS_STORE, { keyPath: 'id' });
+                }
+                if (!upgradeDb.objectStoreNames.contains(PARKING_STORE)) {
+                     console.log(`Creating object store: ${PARKING_STORE}`);
+                    upgradeDb.createObjectStore(PARKING_STORE);
+                }
+                if (!upgradeDb.objectStoreNames.contains(FAV_ACTIVITIES_STORE)) {
+                    console.log(`Creating object store: ${FAV_ACTIVITIES_STORE}`);
+                    upgradeDb.createObjectStore(FAV_ACTIVITIES_STORE, { keyPath: 'mapsLink' });
+                }
+                if (!upgradeDb.objectStoreNames.contains(FAV_STORES_STORE)) {
+                    console.log(`Creating object store: ${FAV_STORES_STORE}`);
+                    upgradeDb.createObjectStore(FAV_STORES_STORE, { keyPath: 'mapsLink' });
+                }
+                if (!upgradeDb.objectStoreNames.contains(FAV_PLACES_STORE)) {
+                    console.log(`Creating object store: ${FAV_PLACES_STORE}`);
+                    upgradeDb.createObjectStore(FAV_PLACES_STORE, { keyPath: 'mapsLink' });
+                }
+                if (!upgradeDb.objectStoreNames.contains(FAV_ROUTE_PLACES_STORE)) {
+                    console.log(`Creating object store: ${FAV_ROUTE_PLACES_STORE}`);
+                    upgradeDb.createObjectStore(FAV_ROUTE_PLACES_STORE, { keyPath: 'mapsLink' });
+                }
+                if (!upgradeDb.objectStoreNames.contains(SETTINGS_STORE)) {
+                    console.log(`Creating object store: ${SETTINGS_STORE}`);
+                    upgradeDb.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
+                }
             };
-
-            db.onclose = () => {
-                console.warn('Database connection closed.');
-                db = null;
-            };
-            
-            resolve(db);
-        };
-
-        request.onupgradeneeded = (event) => {
-            console.log("Database upgrade required.");
-            const upgradeDb = (event.target as IDBOpenDBRequest).result;
-            
-            if (!upgradeDb.objectStoreNames.contains(TRIPS_STORE)) {
-                 console.log(`Creating object store: ${TRIPS_STORE}`);
-                upgradeDb.createObjectStore(TRIPS_STORE, { keyPath: 'id' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(ACCOMMODATIONS_STORE)) {
-                console.log(`Creating object store: ${ACCOMMODATIONS_STORE}`);
-                upgradeDb.createObjectStore(ACCOMMODATIONS_STORE, { keyPath: 'id' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(PARKING_STORE)) {
-                 console.log(`Creating object store: ${PARKING_STORE}`);
-                upgradeDb.createObjectStore(PARKING_STORE);
-            }
-            if (!upgradeDb.objectStoreNames.contains(FAV_ACTIVITIES_STORE)) {
-                console.log(`Creating object store: ${FAV_ACTIVITIES_STORE}`);
-                upgradeDb.createObjectStore(FAV_ACTIVITIES_STORE, { keyPath: 'mapsLink' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(FAV_STORES_STORE)) {
-                console.log(`Creating object store: ${FAV_STORES_STORE}`);
-                upgradeDb.createObjectStore(FAV_STORES_STORE, { keyPath: 'mapsLink' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(FAV_PLACES_STORE)) {
-                console.log(`Creating object store: ${FAV_PLACES_STORE}`);
-                upgradeDb.createObjectStore(FAV_PLACES_STORE, { keyPath: 'mapsLink' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(FAV_ROUTE_PLACES_STORE)) {
-                console.log(`Creating object store: ${FAV_ROUTE_PLACES_STORE}`);
-                upgradeDb.createObjectStore(FAV_ROUTE_PLACES_STORE, { keyPath: 'mapsLink' });
-            }
-            if (!upgradeDb.objectStoreNames.contains(SETTINGS_STORE)) {
-                console.log(`Creating object store: ${SETTINGS_STORE}`);
-                upgradeDb.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
-            }
-        };
-    });
+        });
+    }
+    return dbPromise;
 };
+
 
 const getStore = async (storeName: string, mode: IDBTransactionMode) => {
     const db = await getDb();

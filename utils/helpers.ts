@@ -1,3 +1,4 @@
+
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -102,8 +103,6 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     const canvas = document.createElement('canvas');
     const url = URL.createObjectURL(file);
 
-    video.src = url;
-
     const cleanup = () => {
       URL.revokeObjectURL(url);
       video.removeEventListener('seeked', onSeeked);
@@ -163,6 +162,9 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onError);
+
+    // Set src AFTER attaching listeners to prevent race conditions
+    video.src = url;
   });
 };
 
@@ -243,7 +245,7 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     const video = document.createElement('video');
     video.style.display = 'none';
     const url = URL.createObjectURL(videoBlob);
-    video.src = url;
+    
     video.muted = true;
     video.playsInline = true;
 
@@ -268,9 +270,9 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
         }
         
         const options = getSupportedVideoMimeType();
-        const recorder = new MediaRecorder(stream, options);
         const finalMimeType = options.mimeType || 'video/webm';
 
+        const recorder = new MediaRecorder(stream, options);
         const chunks: Blob[] = [];
         recorder.ondataavailable = e => chunks.push(e.data);
 
@@ -313,7 +315,109 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
       cleanup();
       reject(new Error(`Error loading video for trimming: ${e}`));
     };
-
+    
+    // Set src AFTER attaching listeners to prevent race conditions
+    video.src = url;
     document.body.appendChild(video);
   });
+};
+
+export const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
+    return new Promise(async (resolve, reject) => {
+        const video = document.createElement('video');
+        video.style.display = 'none'; // Keep it off-screen
+
+        const cleanup = () => {
+            if (video.src) URL.revokeObjectURL(video.src);
+            if (video.parentElement) {
+                video.parentElement.removeChild(video);
+            }
+        };
+
+        try {
+            const response = await fetch(`data:${mimeType};base64,${base64}`);
+            const videoBlob = await response.blob();
+            
+            video.muted = true; // Essential for autoplay
+            video.playsInline = true; // For iOS
+            
+            video.onloadedmetadata = () => {
+                try {
+                    const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
+                    if (!stream) {
+                        cleanup();
+                        return reject(new Error('captureStream() is not supported by this browser.'));
+                    }
+                    const videoTracks = stream.getVideoTracks();
+                    
+                    if (videoTracks.length === 0) {
+                        cleanup();
+                        return reject(new Error("Video has no video tracks."));
+                    }
+                    
+                    const mutedStream = new MediaStream(videoTracks);
+                    const options = getSupportedVideoMimeType();
+                    const recorder = new MediaRecorder(mutedStream, options);
+                    const finalMimeType = options.mimeType || 'video/webm';
+                    
+                    const chunks: Blob[] = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    
+                    recorder.onstop = async () => {
+                        cleanup();
+                        try {
+                            const mutedBlob = new Blob(chunks, { type: finalMimeType });
+                            if (mutedBlob.size === 0) {
+                                return reject(new Error("Processing resulted in an empty video file."));
+                            }
+                            const mutedBase64 = await blobToBase64(mutedBlob);
+                            resolve({ base64: mutedBase64, mimeType: finalMimeType });
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    
+                    recorder.onerror = (e) => {
+                        cleanup();
+                        reject(new Error(`MediaRecorder encountered an error during processing.`));
+                    };
+
+                    recorder.start();
+                    video.play().catch(playError => {
+                        cleanup();
+                        reject(playError);
+                    });
+
+                    // Stop recording after the video's full duration has passed.
+                    // Add a small buffer to ensure the last frames are captured.
+                    const durationMs = (video.duration * 1000) + 250;
+                    setTimeout(() => {
+                        if (recorder.state === 'recording') {
+                            recorder.stop();
+                        }
+                        if (!video.paused) {
+                            video.pause();
+                        }
+                    }, durationMs);
+
+                } catch (e) {
+                    cleanup();
+                    reject(e instanceof Error ? e : new Error(String(e)));
+                }
+            };
+            
+            video.onerror = () => {
+                 cleanup();
+                 reject(new Error("Error loading video for processing."));
+            };
+
+            // Set src AFTER attaching listeners to prevent race conditions
+            video.src = URL.createObjectURL(videoBlob);
+            document.body.appendChild(video); // Add to DOM for better playback support
+
+        } catch (error: any) {
+            cleanup();
+            reject(error instanceof Error ? error : new Error(String(error)));
+        }
+    });
 };

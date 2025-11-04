@@ -22,14 +22,14 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSetApiKey, onClose, isClosa
         setIsVerifying(true);
         setError('');
 
-        const isValid = await geminiService.verifyApiKey(key.trim());
+        const validationResult = await geminiService.verifyApiKey(key.trim());
 
         setIsVerifying(false);
 
-        if (isValid) {
+        if (validationResult.success) {
             onSetApiKey(key.trim());
         } else {
-            setError('مفتاح API غير صالح أو غير صحيح. يرجى التحقق مرة أخرى.');
+            setError(validationResult.message || 'مفتاح API غير صالح أو غير صحيح. يرجى التحقق مرة أخرى.');
         }
     };
 

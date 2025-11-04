@@ -11,9 +11,9 @@ export const initializeAiClient = (apiKey: string) => {
     ai = new GoogleGenAI({ apiKey });
 };
 
-export const verifyApiKey = async (apiKey: string): Promise<boolean> => {
+export const verifyApiKey = async (apiKey: string): Promise<{ success: boolean; message?: string; }> => {
     if (!apiKey) {
-        return false;
+        return { success: false, message: 'الرجاء إدخال مفتاح API.' };
     }
     try {
         const tempAi = new GoogleGenAI({ apiKey });
@@ -23,11 +23,11 @@ export const verifyApiKey = async (apiKey: string): Promise<boolean> => {
             contents: 'hello',
         }, tempAi);
         // If the call succeeds, the key is valid.
-        return true;
+        return { success: true };
     } catch (error: any) {
-        // API errors (like 400 for invalid key) will be caught here.
-        console.error("API Key validation failed:", error);
-        return false;
+        // The error thrown from generateContentWithRetry is an Error object with a message.
+        console.error("API Key validation failed:", error.message);
+        return { success: false, message: error.message || 'حدث خطأ غير متوقع أثناء التحقق.' };
     }
 };
 
@@ -190,7 +190,7 @@ export const analyzeProductImage = async (base64Image: string): Promise<ProductA
     إذا وجدت جدول حقائق غذائية في الصورة، استخرج بياناته بالتفصيل.
     بناءً على الحقائق الغذائية المستخرجة، قدم نصيحة صحية موجزة وفعالة.
     إذا أمكن، قدم معلومات صحية عامة وأي دليل شرعي ذي صلة.
-    تأكد من استخدام الأرقام الغربية (1, 2, 3) في جميع الحقول الرقمية والنصية.
+    تأكد من أن جميع الأرقام الغربية (1, 2, 3) في جميع الحقول الرقمية والنصية.
     أجب بصيغة JSON فقط.
   `;
   

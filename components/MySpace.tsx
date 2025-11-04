@@ -10,7 +10,7 @@ import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAn
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 // FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, getSupportedVideoMimeType } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -554,96 +554,6 @@ const TripDetails: React.FC<{
         </div>
     );
 };
-
-const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
-    return new Promise(async (resolve, reject) => {
-        const video = document.createElement('video');
-        video.style.display = 'none'; // Keep it off-screen
-
-        const cleanup = () => {
-            URL.revokeObjectURL(video.src);
-            if (video.parentElement) {
-                video.parentElement.removeChild(video);
-            }
-        };
-
-        try {
-            const response = await fetch(`data:${mimeType};base64,${base64}`);
-            const videoBlob = await response.blob();
-            
-            video.src = URL.createObjectURL(videoBlob);
-            video.muted = true; // Essential for autoplay
-            video.playsInline = true; // For iOS
-            
-            document.body.appendChild(video); // Add to DOM for better playback support
-            
-            video.onloadedmetadata = () => {
-                try {
-                    const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
-                    const videoTracks = stream.getVideoTracks();
-                    
-                    if (videoTracks.length === 0) {
-                        cleanup();
-                        return reject(new Error("Video has no video tracks."));
-                    }
-                    
-                    const mutedStream = new MediaStream(videoTracks);
-                    // FIX: Renamed function call to getSupportedVideoMimeType.
-                    const options = getSupportedVideoMimeType();
-                    const recorder = new MediaRecorder(mutedStream, options);
-                    const finalMimeType = options.mimeType || 'video/webm';
-                    
-                    const chunks: Blob[] = [];
-                    recorder.ondataavailable = e => chunks.push(e.data);
-                    
-                    recorder.onstop = async () => {
-                        cleanup();
-                        try {
-                            const mutedBlob = new Blob(chunks, { type: finalMimeType });
-                            if (mutedBlob.size === 0) {
-                                return reject(new Error("Processing resulted in an empty video file."));
-                            }
-                            const mutedBase64 = await blobToBase64(mutedBlob);
-                            resolve({ base64: mutedBase64, mimeType: finalMimeType });
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    
-                    recorder.onerror = (e) => {
-                        cleanup();
-                        reject(new Error(`MediaRecorder error: ${e}`));
-                    };
-
-                    recorder.start();
-                    video.play().catch(playError => {
-                        cleanup();
-                        reject(playError);
-                    });
-
-                    video.onended = () => {
-                        if (recorder.state === 'recording') {
-                            recorder.stop();
-                        }
-                    };
-                } catch (e) {
-                    cleanup();
-                    reject(e instanceof Error ? e : new Error(String(e)));
-                }
-            };
-            
-            video.onerror = () => {
-                 cleanup();
-                 reject(new Error("Error loading video for processing."));
-            };
-
-        } catch (error: any) {
-            cleanup();
-            reject(error instanceof Error ? error : new Error(String(error)));
-        }
-    });
-};
-
 
 const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: new Date().toISOString().split('T')[0], title: '', notes: '', photos: [], videos: [], expenses: [] });
