@@ -243,17 +243,21 @@ export const getSupportedVideoMimeType = () => {
 export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
+    const canvas = document.createElement('canvas');
     video.style.display = 'none';
+    canvas.style.display = 'none';
     const url = URL.createObjectURL(videoBlob);
     
     video.muted = true;
     video.playsInline = true;
 
+    let animationFrameId: number;
+
     const cleanup = () => {
       URL.revokeObjectURL(url);
-      if (video.parentElement) {
-        document.body.removeChild(video);
-      }
+      if (video.parentElement) document.body.removeChild(video);
+      if (canvas.parentElement) document.body.removeChild(canvas);
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
 
     video.onloadedmetadata = () => {
@@ -263,12 +267,21 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
       }
 
       try {
-        const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
-        if (!stream) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
             cleanup();
-            return reject(new Error('captureStream() is not supported by this browser.'));
+            return reject(new Error('Could not get canvas context.'));
         }
-        
+
+        // FIX: Check for canvas.captureStream support
+        if (typeof (canvas as any).captureStream !== 'function') {
+            cleanup();
+            return reject(new Error('canvas.captureStream() is not supported by this browser.'));
+        }
+
+        const stream = (canvas as any).captureStream();
         const options = getSupportedVideoMimeType();
         const finalMimeType = options.mimeType || 'video/webm';
 
@@ -289,9 +302,18 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
           cleanup();
           reject(e);
         };
+        
+        const drawFrame = () => {
+            if (!video.paused && !video.ended) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                animationFrameId = requestAnimationFrame(drawFrame);
+            }
+        };
 
         recorder.start();
-        video.play().catch(playError => {
+        video.play().then(() => {
+            drawFrame();
+        }).catch(playError => {
             cleanup();
             reject(playError);
         });
@@ -319,45 +341,52 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
     document.body.appendChild(video);
+    document.body.appendChild(canvas);
   });
 };
 
 export const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
     return new Promise(async (resolve, reject) => {
         const video = document.createElement('video');
-        video.style.display = 'none'; // Keep it off-screen
+        const canvas = document.createElement('canvas');
+        video.style.display = 'none';
+        canvas.style.display = 'none';
+
+        let animationFrameId: number;
 
         const cleanup = () => {
             if (video.src) URL.revokeObjectURL(video.src);
-            if (video.parentElement) {
-                video.parentElement.removeChild(video);
-            }
+            if (video.parentElement) video.parentElement.removeChild(video);
+            if (canvas.parentElement) canvas.parentElement.removeChild(canvas);
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
         };
 
         try {
             const response = await fetch(`data:${mimeType};base64,${base64}`);
             const videoBlob = await response.blob();
             
-            video.muted = true; // Essential for autoplay
-            video.playsInline = true; // For iOS
-            
+            video.muted = true;
+            video.playsInline = true;
+
             video.onloadedmetadata = () => {
                 try {
-                    const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
-                    if (!stream) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
                         cleanup();
-                        return reject(new Error('captureStream() is not supported by this browser.'));
+                        return reject(new Error('Could not get canvas context.'));
                     }
-                    const videoTracks = stream.getVideoTracks();
-                    
-                    if (videoTracks.length === 0) {
+
+                    // FIX: Check for canvas.captureStream support
+                    if (typeof (canvas as any).captureStream !== 'function') {
                         cleanup();
-                        return reject(new Error("Video has no video tracks."));
+                        return reject(new Error('canvas.captureStream() is not supported by this browser.'));
                     }
                     
-                    const mutedStream = new MediaStream(videoTracks);
+                    const stream = (canvas as any).captureStream();
                     const options = getSupportedVideoMimeType();
-                    const recorder = new MediaRecorder(mutedStream, options);
+                    const recorder = new MediaRecorder(stream, options);
                     const finalMimeType = options.mimeType || 'video/webm';
                     
                     const chunks: Blob[] = [];
@@ -382,14 +411,22 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                         reject(new Error(`MediaRecorder encountered an error during processing.`));
                     };
 
+                    const drawFrame = () => {
+                        if (!video.paused && !video.ended) {
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            animationFrameId = requestAnimationFrame(drawFrame);
+                        }
+                    };
+
                     recorder.start();
-                    video.play().catch(playError => {
+                    video.play().then(() => {
+                        drawFrame();
+                    }).catch(playError => {
                         cleanup();
                         reject(playError);
                     });
 
                     // Stop recording after the video's full duration has passed.
-                    // Add a small buffer to ensure the last frames are captured.
                     const durationMs = (video.duration * 1000) + 250;
                     setTimeout(() => {
                         if (recorder.state === 'recording') {
@@ -413,7 +450,8 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
 
             // Set src AFTER attaching listeners to prevent race conditions
             video.src = URL.createObjectURL(videoBlob);
-            document.body.appendChild(video); // Add to DOM for better playback support
+            document.body.appendChild(video);
+            document.body.appendChild(canvas);
 
         } catch (error: any) {
             cleanup();
