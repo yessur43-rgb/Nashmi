@@ -6,8 +6,7 @@ import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 import { blobToBase64, generateVideoThumbnail, getSupportedVideoMimeType, removeAudioFromVideo } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
-// FIX: Added MicOff to lucide-react imports
-import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff, XCircle, Save, Volume2, VolumeX, MicOff, Sparkles } from 'lucide-react';
+import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff, XCircle, Save, Volume2, VolumeX, MicOff, Sparkles, RotateCcw } from 'lucide-react';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -46,11 +45,17 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   const [recordingTime, setRecordingTime] = useState(0);
   const timerIntervalRef = useRef<number | null>(null);
   
-  // New state for the preview screen
+  // Preview and enhancement state
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(null);
   const [shouldMuteVideo, setShouldMuteVideo] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [originalPhotoBeforeEnhance, setOriginalPhotoBeforeEnhance] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
 
+  // Zoom state
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomCapabilities, setZoomCapabilities] = useState<{min: number, max: number, step: number} | null>(null);
+  const availableZoomLevels = [0.5, 1, 2];
 
   useEffect(() => {
     if (isRecording && (activeMode === 'video' || activeMode === 'audio')) {
@@ -82,16 +87,18 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+    setZoomCapabilities(null);
   };
   
   const startCameraStream = async () => {
-    if (capturedMedia) return; // Don't start stream if preview is shown
+    if (capturedMedia) return;
     stopCameraStream();
     setCameraError(null);
     try {
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: facingMode,
+          aspectRatio: 16 / 9,
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         },
@@ -99,6 +106,15 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      
+      const videoTrack = stream.getVideoTracks()[0];
+      // @ts-ignore
+      if (videoTrack.getCapabilities && videoTrack.getCapabilities().zoom) {
+         // @ts-ignore
+        setZoomCapabilities(videoTrack.getCapabilities().zoom);
+      }
+      setZoomLevel(1);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
@@ -121,7 +137,6 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   }, [facingMode, activeMode, capturedMedia]);
 
   useEffect(() => {
-    // Cleanup for object URLs
     return () => {
         if (capturedMedia) {
             URL.revokeObjectURL(capturedMedia.objectUrl);
@@ -141,6 +156,20 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                 setIsFlashOn(!isFlashOn);
             } catch (err) { console.error("Failed to toggle flash:", err); }
         }
+    }
+  };
+  
+  const handleZoomChange = async (newZoom: number) => {
+    if (!streamRef.current || !zoomCapabilities) return;
+    if (newZoom >= zoomCapabilities.min && newZoom <= zoomCapabilities.max) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      try {
+        // @ts-ignore
+        await videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
+        setZoomLevel(newZoom);
+      } catch (err) {
+        console.error("Failed to apply zoom:", err);
+      }
     }
   };
 
@@ -210,11 +239,9 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         setIsRecording(false);
         const mimeType = mediaRecorderRef.current?.mimeType || 'video/webm';
         const videoBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        // FIX: Add a check to ensure the recorded video blob is not empty, preventing a "Load failed" error in the preview player.
         if (videoBlob.size === 0) {
             console.warn("Video recording resulted in an empty file. Discarding.");
             setCameraError("فشل تسجيل الفيديو. قد يكون التسجيل قصيرًا جدًا.");
-            // Reset to a clean state
             setIsRecording(false);
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
             setRecordingTime(0);
@@ -246,11 +273,9 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                 stopCameraStream();
                 const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
                 const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-                // FIX: Add a check to ensure the recorded audio blob is not empty, preventing a "Load failed" error in the preview player.
                 if (audioBlob.size === 0) {
                     console.warn("Audio recording resulted in an empty file. Discarding.");
                     setCameraError("فشل تسجيل الصوت. قد يكون التسجيل قصيرًا جدًا.");
-                    // Reset to a clean state
                     setIsRecording(false);
                     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
                     setRecordingTime(0);
@@ -275,6 +300,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     }
     setCapturedMedia(null);
     setShouldMuteVideo(false);
+    setOriginalPhotoBeforeEnhance(null);
   };
 
   const handleEnhancePhoto = async () => {
@@ -285,25 +311,17 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     try {
         const enhancedBase64 = await geminiService.enhancePhoto(capturedMedia.base64);
         if (enhancedBase64) {
-            // Create new blob and object URL for the enhanced image
             const byteCharacters = atob(enhancedBase64);
             const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
+            for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
             const byteArray = new Uint8Array(byteNumbers);
             const blob = new Blob([byteArray], { type: 'image/jpeg' });
             const newObjectUrl = URL.createObjectURL(blob);
-
-            // Revoke old URL before setting new state to prevent memory leaks
+            
+            setOriginalPhotoBeforeEnhance(capturedMedia.base64);
             URL.revokeObjectURL(capturedMedia.objectUrl);
             
-            setCapturedMedia({
-                ...capturedMedia,
-                base64: enhancedBase64,
-                objectUrl: newObjectUrl,
-            });
-
+            setCapturedMedia({ ...capturedMedia, base64: enhancedBase64, objectUrl: newObjectUrl });
         } else {
             setCameraError("فشل تحسين الصورة. حاول مرة أخرى.");
         }
@@ -313,6 +331,22 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     } finally {
         setIsEnhancing(false);
     }
+  };
+  
+  const handleUndoEnhance = () => {
+    if (!originalPhotoBeforeEnhance || !capturedMedia) return;
+    
+    const byteCharacters = atob(originalPhotoBeforeEnhance);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    const newObjectUrl = URL.createObjectURL(blob);
+    
+    URL.revokeObjectURL(capturedMedia.objectUrl);
+    
+    setCapturedMedia({ ...capturedMedia, base64: originalPhotoBeforeEnhance, objectUrl: newObjectUrl });
+    setOriginalPhotoBeforeEnhance(null);
   };
 
 
@@ -388,16 +422,40 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   };
   
   if (capturedMedia) {
+    const previewSrc = showOriginal && originalPhotoBeforeEnhance 
+      ? `data:image/jpeg;base64,${originalPhotoBeforeEnhance}`
+      : capturedMedia.objectUrl;
+
     return (
         <div className="absolute inset-0 bg-black z-20 flex flex-col animate-fade-in">
             {isProcessing && <div className="absolute inset-0 bg-black/70 z-40 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري الحفظ...</p></div>}
             {isEnhancing && <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري تحسين الصورة بالذكاء الاصطناعي...</p></div>}
             
-            <div className="flex-grow flex items-center justify-center p-4 relative">
-                {capturedMedia.type === 'photo' && <img src={capturedMedia.objectUrl} alt="Preview" className="max-w-full max-h-full object-contain rounded-lg" />}
-                {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="max-w-full max-h-full rounded-lg" />}
-                {capturedMedia.type === 'audio' && <div className="p-8 flex flex-col items-center gap-4"><Mic size={80} className="text-primary"/><audio src={capturedMedia.objectUrl} controls autoPlay className="w-full max-w-sm" /></div>}
+            <div className="flex-grow relative">
+                {capturedMedia.type === 'photo' && (
+                    <div 
+                      className="relative w-full h-full"
+                      onMouseDown={() => {if(originalPhotoBeforeEnhance) setShowOriginal(true)}}
+                      onMouseUp={() => setShowOriginal(false)}
+                      onTouchStart={() => {if(originalPhotoBeforeEnhance) setShowOriginal(true)}}
+                      onTouchEnd={() => setShowOriginal(false)}
+                    >
+                        <img src={previewSrc} alt="Preview" className="w-full h-full object-cover" />
+                        {originalPhotoBeforeEnhance && (
+                            <div className={`absolute inset-0 flex items-center justify-center text-white text-lg font-bold bg-black/50 transition-opacity duration-300 ${showOriginal ? 'opacity-100' : 'opacity-0'}`}>
+                                قبل
+                            </div>
+                        )}
+                    </div>
+                )}
+                {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="w-full h-full object-cover" />}
+                {capturedMedia.type === 'audio' && <div className="w-full h-full flex flex-col items-center justify-center gap-4"><Mic size={80} className="text-primary"/><audio src={capturedMedia.objectUrl} controls autoPlay className="w-full max-w-sm" /></div>}
             </div>
+            {originalPhotoBeforeEnhance && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-semibold">
+                    اضغط مطولاً لرؤية النسخة الأصلية
+                </div>
+            )}
             <div className="flex-shrink-0 p-6 bg-gradient-to-t from-black/70 to-transparent">
                 <div className="w-full flex justify-around items-center">
                     <button onClick={handleDiscardMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
@@ -416,14 +474,23 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                             <span className="text-xs font-bold">{shouldMuteVideo ? 'مكتوم' : 'الصوت'}</span>
                         </button>
                     ) : capturedMedia.type === 'photo' ? (
-                        <button onClick={handleEnhancePhoto} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
-                            <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
-                                <Sparkles size={32}/>
-                            </div>
-                            <span className="text-xs font-bold">تحسين</span>
-                        </button>
+                        originalPhotoBeforeEnhance ? (
+                             <button onClick={handleUndoEnhance} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
+                                    <RotateCcw size={32}/>
+                                </div>
+                                <span className="text-xs font-bold">تراجع</span>
+                            </button>
+                        ) : (
+                            <button onClick={handleEnhancePhoto} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
+                                    <Sparkles size={32}/>
+                                </div>
+                                <span className="text-xs font-bold">تحسين</span>
+                            </button>
+                        )
                     ) : (
-                        <div className="w-16 h-16" /> // Placeholder for alignment
+                        <div className="w-16 h-16" />
                     )}
                 </div>
             </div>
@@ -477,7 +544,24 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         </div>
       </div>
       
-      <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center gap-6 bg-gradient-to-t from-black/70 to-transparent">
+      <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center gap-4 bg-gradient-to-t from-black/70 to-transparent">
+        {zoomCapabilities && activeMode !== 'audio' && (
+          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-sm p-1 rounded-full text-xs font-bold">
+            {availableZoomLevels.map(level => {
+              const isSupported = level >= zoomCapabilities.min && level <= zoomCapabilities.max;
+              return (
+                <button
+                  key={level}
+                  onClick={() => handleZoomChange(level)}
+                  disabled={!isSupported}
+                  className={`w-10 h-10 rounded-full transition-colors ${zoomLevel === level ? 'bg-white/30' : ''} disabled:opacity-50 disabled:text-gray-400`}
+                >
+                  {level}x
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="bg-black/40 backdrop-blur-sm p-1 rounded-full flex items-center gap-1 text-sm font-semibold">
           <button onClick={() => setActiveMode('photo')} className={`px-4 py-2 rounded-full ${activeMode === 'photo' && 'bg-white/20'}`}>صورة</button>
           <button onClick={() => setActiveMode('video')} className={`px-4 py-2 rounded-full ${activeMode === 'video' && 'bg-white/20'}`}>فيديو</button>

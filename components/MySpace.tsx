@@ -582,6 +582,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const expensePhotoInputRef = useRef<HTMLInputElement>(null);
 
     const updateEntry = (updates: Partial<JournalEntry>) => setCurrentEntry(prev => ({ ...prev, ...updates }));
+    const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+
 
     useEffect(() => {
         let objectUrl: string | null = null;
@@ -617,11 +619,6 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         if (files.length === 0) return;
 
         setFormError(null);
-
-        // The file size check is removed. Now, all videos will be added to the queue.
-        // The existing processing pipeline will automatically trim videos to 60 seconds and
-        // re-encode them, which significantly reduces file size and solves the problem
-        // for the user without showing an error for large files.
         const newQueueItems = files.map(file => ({ file, totalInBatch: files.length }));
         setMediaQueue(prev => [...prev, ...newQueueItems]);
         
@@ -631,13 +628,14 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     useEffect(() => {
         const processQueue = async () => {
-            if (mediaQueue.length === 0 || isProcessingMedia) {
-                if (mediaQueue.length === 0) {
+            if (mediaQueue.length === 0) {
+                if(isProcessingMedia) {
                     setIsProcessingMedia(false);
                     setProcessingStatus('');
                 }
                 return;
             }
+            if (isProcessingMedia) return;
 
             setIsProcessingMedia(true);
             const { file: fileToProcess, totalInBatch } = mediaQueue[0];
@@ -669,28 +667,34 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     }
                 } else if (fileToProcess.type.startsWith('video/')) {
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
-                    const trimmedVideoBlob = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+                    const { blob: processedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
                     setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
-                    let base64 = await blobToBase64(trimmedVideoBlob);
-                    let mimeType = trimmedVideoBlob.type;
+                    await yieldToMain();
+                    let base64 = await blobToBase64(processedVideoBlob);
+                    let mimeType = processedVideoBlob.type;
                     
-                    const thumbnailBase64 = await generateVideoThumbnail(new File([trimmedVideoBlob], fileToProcess.name, { type: mimeType })).catch(e => {
+                    await yieldToMain();
+                    const thumbnailBase64 = await generateVideoThumbnail(new File([processedVideoBlob], fileToProcess.name, { type: mimeType })).catch(e => {
                         console.warn("Thumbnail generation failed, skipping:", e);
                         return undefined;
                     });
 
                     const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
                     
-                    setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
-                    try {
-                        const mutedVideo = await removeAudioFromVideo(base64, mimeType);
-                        base64 = mutedVideo.base64;
-                        mimeType = mutedVideo.mimeType;
-                    } catch (muteError) {
-                        console.error("Could not remove audio from video, storing original:", muteError);
-                        setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
+                    if (!wasTrimmed) {
+                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
+                         await yieldToMain();
+                         try {
+                            const mutedVideo = await removeAudioFromVideo(base64, mimeType);
+                            base64 = mutedVideo.base64;
+                            mimeType = mutedVideo.mimeType;
+                        } catch (muteError) {
+                            console.error("Could not remove audio from video, storing original:", muteError);
+                            setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
+                        }
                     }
 
                     const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
@@ -706,8 +710,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             }
         };
 
-        processQueue();
-    }, [mediaQueue, isProcessingMedia, location, currentEntry.notes, currentEntry.photos.length, currentEntry.videos.length, currentEntry.expenses.length]);
+        const timeoutId = setTimeout(processQueue, 100); // Give UI time to update status
+        return () => clearTimeout(timeoutId);
+    }, [mediaQueue, isProcessingMedia, location, currentEntry.notes, currentEntry.photos, currentEntry.videos, currentEntry.expenses]);
 
 
     const handleNoteFromAudio = async (audioBlob: Blob) => {
@@ -1052,11 +1057,11 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 <div className="flex items-center gap-3">
                     <h3 className="font-bold">الصور والفيديوهات</h3>
                 </div>
-                <input type="file" accept="image/*,video/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
+                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة أو فيديو</span></button>
-                    {/* <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button> */}
+                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
+                    <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
                 </div>
                 {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
                     <div className="flex gap-2 overflow-x-auto pb-2">

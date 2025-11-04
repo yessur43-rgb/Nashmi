@@ -240,7 +240,7 @@ export const getSupportedVideoMimeType = () => {
     return {};
 };
 
-export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<Blob> => {
+export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<{ blob: Blob, wasTrimmed: boolean }> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
@@ -263,7 +263,7 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     video.onloadedmetadata = () => {
       if (video.duration <= maxDurationSeconds) {
         cleanup();
-        return resolve(videoBlob);
+        return resolve({ blob: videoBlob, wasTrimmed: false });
       }
 
       try {
@@ -295,7 +295,7 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
            if (trimmedBlob.size === 0) {
               return reject(new Error("Trimming resulted in an empty video file."));
           }
-          resolve(trimmedBlob);
+          resolve({ blob: trimmedBlob, wasTrimmed: true });
         };
 
         recorder.onerror = (e) => {
