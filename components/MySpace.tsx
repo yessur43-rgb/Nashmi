@@ -4,6 +4,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
@@ -618,34 +620,18 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
-        // FIX: Explicitly type `files` as `File[]` to resolve TypeScript's inability to infer the type from `e.target.files` in this context, which was causing subsequent properties like `type`, `size`, and `name` to be inaccessible.
         const files: File[] = Array.from(e.target.files);
         if (files.length === 0) return;
 
-        const MAX_VIDEO_SIZE_MB = 200;
-        const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
-
-        const validFiles: File[] = [];
-        const oversizedFiles: string[] = [];
-
-        for (const file of files) {
-            if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_BYTES) {
-                oversizedFiles.push(file.name);
-            } else {
-                validFiles.push(file);
-            }
-        }
-
-        if (oversizedFiles.length > 0) {
-            setFormError(`الملفات التالية كبيرة جدًا: ${oversizedFiles.join(', ')}. الحد الأقصى المسموح به هو ${MAX_VIDEO_SIZE_MB} ميجابايت لكل ملف.`);
-        } else {
-            setFormError(null);
-        }
-
-        if (validFiles.length > 0) {
-            const newQueueItems = validFiles.map(file => ({ file, totalInBatch: validFiles.length }));
-            setMediaQueue(prev => [...prev, ...newQueueItems]);
-        }
+        // Clear previous errors as we will now attempt to process all files.
+        setFormError(null);
+        
+        // The file size check has been removed. Now, all videos will be added to the queue.
+        // The existing processing pipeline will automatically trim videos to 60 seconds and
+        // re-encode them, which significantly reduces file size and solves the problem
+        // for the user without showing an error for large files.
+        const newQueueItems = files.map(file => ({ file, totalInBatch: files.length }));
+        setMediaQueue(prev => [...prev, ...newQueueItems]);
         
         // Reset file input to allow selecting the same file again
         e.target.value = '';

@@ -1,6 +1,6 @@
 
 
-import { GoogleGenAI, Type, GenerateContentResponse, Chat } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse, Chat, Modality } from "@google/genai";
 // FIX: Imported JournalImageAnalysis type.
 import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool, JournalImageAnalysis } from '../types';
 import { calculateDistance } from '../utils/helpers';
@@ -1476,6 +1476,50 @@ export const generateTripNameFromLocation = async (location: { lat: number, lon:
         return `رحلة ${new Date().toLocaleDateString('ar-EG-u-nu-latn')}`; // Fallback name
     }
 };
+
+export const enhancePhoto = async (base64Image: string): Promise<string | null> => {
+  const prompt = `Enhance this photograph. Improve the overall clarity, lighting, color balance, and sharpness. Do not crop the image or change its aspect ratio. The goal is a natural-looking, high-quality enhancement. Return only the enhanced image.`;
+
+  try {
+    const response = await generateContentWithRetry({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64Image,
+              mimeType: 'image/jpeg',
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+      },
+      config: {
+          responseModalities: [Modality.IMAGE],
+      },
+    });
+
+    if (!response) {
+        console.error("Error enhancing photo: API returned undefined response.");
+        return null;
+    }
+    
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+            return part.inlineData.data;
+        }
+    }
+    
+    console.error("Error enhancing photo: No image data found in the response.");
+    return null;
+  } catch (error) {
+    console.error("Error enhancing photo:", error);
+    return null;
+  }
+};
+
 
 type JournalAudioAnalysis = {
     type: 'note';

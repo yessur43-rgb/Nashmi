@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -6,7 +7,7 @@ import * as geminiService from '../services/geminiService';
 import { blobToBase64, generateVideoThumbnail, getSupportedVideoMimeType, removeAudioFromVideo } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 // FIX: Added MicOff to lucide-react imports
-import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff, XCircle, Save, Volume2, VolumeX, MicOff } from 'lucide-react';
+import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff, XCircle, Save, Volume2, VolumeX, MicOff, Sparkles } from 'lucide-react';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -48,6 +49,8 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   // New state for the preview screen
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(null);
   const [shouldMuteVideo, setShouldMuteVideo] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+
 
   useEffect(() => {
     if (isRecording && (activeMode === 'video' || activeMode === 'audio')) {
@@ -274,6 +277,45 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     setShouldMuteVideo(false);
   };
 
+  const handleEnhancePhoto = async () => {
+    if (!capturedMedia || capturedMedia.type !== 'photo') return;
+    
+    setIsEnhancing(true);
+    setCameraError(null);
+    try {
+        const enhancedBase64 = await geminiService.enhancePhoto(capturedMedia.base64);
+        if (enhancedBase64) {
+            // Create new blob and object URL for the enhanced image
+            const byteCharacters = atob(enhancedBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/jpeg' });
+            const newObjectUrl = URL.createObjectURL(blob);
+
+            // Revoke old URL before setting new state to prevent memory leaks
+            URL.revokeObjectURL(capturedMedia.objectUrl);
+            
+            setCapturedMedia({
+                ...capturedMedia,
+                base64: enhancedBase64,
+                objectUrl: newObjectUrl,
+            });
+
+        } else {
+            setCameraError("فشل تحسين الصورة. حاول مرة أخرى.");
+        }
+    } catch (error) {
+        console.error("Error enhancing photo:", error);
+        setCameraError("حدث خطأ غير متوقع أثناء تحسين الصورة.");
+    } finally {
+        setIsEnhancing(false);
+    }
+  };
+
+
   const handleSaveMedia = async () => {
     if (!capturedMedia || !location) return;
     setIsProcessing(true);
@@ -349,6 +391,8 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     return (
         <div className="absolute inset-0 bg-black z-20 flex flex-col animate-fade-in">
             {isProcessing && <div className="absolute inset-0 bg-black/70 z-40 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري الحفظ...</p></div>}
+            {isEnhancing && <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center"><Loader2 className="animate-spin mb-4" size={48} /><p>جاري تحسين الصورة بالذكاء الاصطناعي...</p></div>}
+            
             <div className="flex-grow flex items-center justify-center p-4 relative">
                 {capturedMedia.type === 'photo' && <img src={capturedMedia.objectUrl} alt="Preview" className="max-w-full max-h-full object-contain rounded-lg" />}
                 {capturedMedia.type === 'video' && <video src={capturedMedia.objectUrl} controls autoPlay className="max-w-full max-h-full rounded-lg" />}
@@ -356,20 +400,27 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             </div>
             <div className="flex-shrink-0 p-6 bg-gradient-to-t from-black/70 to-transparent">
                 <div className="w-full flex justify-around items-center">
-                    <button onClick={handleDiscardMedia} className="flex flex-col items-center gap-1 text-white">
+                    <button onClick={handleDiscardMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                         <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center"><XCircle size={32}/></div>
                         <span className="text-xs font-bold">تجاهل</span>
                     </button>
-                    <button onClick={handleSaveMedia} className="flex flex-col items-center gap-1 text-white">
+                    <button onClick={handleSaveMedia} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                         <div className="w-20 h-20 bg-primary rounded-full flex items-center justify-center"><Save size={40}/></div>
                         <span className="text-sm font-bold">حفظ</span>
                     </button>
                     {capturedMedia.type === 'video' ? (
-                         <button onClick={() => setShouldMuteVideo(p => !p)} className="flex flex-col items-center gap-1 text-white">
+                         <button onClick={() => setShouldMuteVideo(p => !p)} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
                             <div className={`w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center transition-colors ${shouldMuteVideo ? 'text-red-400' : ''}`}>
                                 {shouldMuteVideo ? <VolumeX size={32}/> : <Volume2 size={32}/>}
                             </div>
                             <span className="text-xs font-bold">{shouldMuteVideo ? 'مكتوم' : 'الصوت'}</span>
+                        </button>
+                    ) : capturedMedia.type === 'photo' ? (
+                        <button onClick={handleEnhancePhoto} disabled={isEnhancing} className="flex flex-col items-center gap-1 text-white disabled:opacity-50">
+                            <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-yellow-300">
+                                <Sparkles size={32}/>
+                            </div>
+                            <span className="text-xs font-bold">تحسين</span>
                         </button>
                     ) : (
                         <div className="w-16 h-16" /> // Placeholder for alignment
