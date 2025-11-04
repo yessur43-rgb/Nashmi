@@ -2,20 +2,24 @@
 
 
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, compressImageAndConvertToBase64 } from '../utils/helpers';
+// FIX: Imported getSupportedVideoMimeType to resolve error.
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, getSupportedVideoMimeType } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
 
 import { 
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
-    Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon,
-    Receipt, Type, Save, X, MapPin, BookOpen, Share2, Volume2, Loader2
+    Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon, VolumeX,
+    Receipt, Type, Save, X, MapPin, BookOpen, Share2, Loader2,
+    Library, Grid, Clapperboard, Filter, CheckSquare, XCircle, FileArchive
 } from 'lucide-react';
 
 interface ToolProps {
@@ -99,7 +103,6 @@ const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBa
         </div>
     );
 };
-
 
 // Main Component
 const MySpace: React.FC<ToolProps> = ({ location }) => {
@@ -219,7 +222,8 @@ const TripAndStoryList: React.FC<{
     const getFirstImage = (trip: Trip): string | null => {
         for (const entry of trip.entries) {
             if (entry.photos && entry.photos.length > 0) {
-                return `data:image/jpeg;base64,${entry.photos[0].base64}`;
+                const photo = entry.photos[0];
+                return `data:image/jpeg;base64,${photo.thumbnailBase64 || photo.base64}`;
             }
         }
         return null;
@@ -283,7 +287,7 @@ const TripAndStoryList: React.FC<{
                                 <div key={trip.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-4 flex-grow cursor-pointer" onClick={() => onViewStory(trip)}>
                                         {firstImage ? (
-                                            <img src={firstImage} alt={trip.name} className="w-24 h-24 object-cover rounded-lg flex-shrink-0" />
+                                            <img src={firstImage} alt={trip.name} className="w-24 h-24 object-cover rounded-lg flex-shrink-0" loading="lazy" />
                                         ) : (
                                             <div className="w-24 h-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
                                                 <BookOpen className="text-gray-400" size={32} />
@@ -311,7 +315,7 @@ const TripAndStoryList: React.FC<{
                     }
                 </div>
             )}
-
+            
             <StorageUsage />
         </div>
     );
@@ -367,6 +371,16 @@ const TripDetails: React.FC<{
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(trip.name);
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const ENTRIES_PER_PAGE = 10;
+
+    const sortedEntries = useMemo(() => 
+        trip.entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [trip.entries]);
+
+    const displayedEntries = useMemo(() =>
+        sortedEntries.slice(0, currentPage * ENTRIES_PER_PAGE),
+    [sortedEntries, currentPage]);
 
     useEffect(() => {
         if (isEditingName && nameInputRef.current) {
@@ -500,7 +514,7 @@ const TripDetails: React.FC<{
                  </div>
             </div>
              <div className="space-y-4">
-                 {trip.entries.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
+                 {displayedEntries.map(entry => {
                      const dailyTotal = entry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
                      const words = (entry.notes || '').split(/\s+/);
                      const snippet = words.length > 10
@@ -529,20 +543,39 @@ const TripDetails: React.FC<{
                          </div>
                      );
                  })}
+                {sortedEntries.length > displayedEntries.length && (
+                    <button 
+                        onClick={() => setCurrentPage(p => p + 1)} 
+                        className="w-full text-center py-3 text-primary dark:text-primary-light font-semibold hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg">
+                        تحميل المزيد
+                    </button>
+                )}
              </div>
         </div>
     );
 };
 
-
 const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
     return new Promise(async (resolve, reject) => {
+        const video = document.createElement('video');
+        video.style.display = 'none'; // Keep it off-screen
+
+        const cleanup = () => {
+            URL.revokeObjectURL(video.src);
+            if (video.parentElement) {
+                video.parentElement.removeChild(video);
+            }
+        };
+
         try {
             const response = await fetch(`data:${mimeType};base64,${base64}`);
             const videoBlob = await response.blob();
             
-            const video = document.createElement('video');
             video.src = URL.createObjectURL(videoBlob);
+            video.muted = true; // Essential for autoplay
+            video.playsInline = true; // For iOS
+            
+            document.body.appendChild(video); // Add to DOM for better playback support
             
             video.onloadedmetadata = () => {
                 try {
@@ -550,44 +583,62 @@ const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{
                     const videoTracks = stream.getVideoTracks();
                     
                     if (videoTracks.length === 0) {
-                        URL.revokeObjectURL(video.src);
+                        cleanup();
                         return reject(new Error("Video has no video tracks."));
                     }
                     
                     const mutedStream = new MediaStream(videoTracks);
-                    const recorder = new MediaRecorder(mutedStream, { mimeType: 'video/webm' });
+                    // FIX: Renamed function call to getSupportedVideoMimeType.
+                    const options = getSupportedVideoMimeType();
+                    const recorder = new MediaRecorder(mutedStream, options);
+                    const finalMimeType = options.mimeType || 'video/webm';
                     
                     const chunks: Blob[] = [];
                     recorder.ondataavailable = e => chunks.push(e.data);
                     
                     recorder.onstop = async () => {
+                        cleanup();
                         try {
-                            const mutedBlob = new Blob(chunks, { type: 'video/webm' });
-                            const mutedVideoData = await blobToBase64(mutedBlob);
-                            URL.revokeObjectURL(video.src);
-                            resolve(mutedVideoData);
+                            const mutedBlob = new Blob(chunks, { type: finalMimeType });
+                            if (mutedBlob.size === 0) {
+                                return reject(new Error("Processing resulted in an empty video file."));
+                            }
+                            const mutedBase64 = await blobToBase64(mutedBlob);
+                            resolve({ base64: mutedBase64, mimeType: finalMimeType });
                         } catch (e) {
                             reject(e);
                         }
                     };
+                    
+                    recorder.onerror = (e) => {
+                        cleanup();
+                        reject(new Error(`MediaRecorder error: ${e}`));
+                    };
 
                     recorder.start();
-                    video.play().catch(reject);
+                    video.play().catch(playError => {
+                        cleanup();
+                        reject(playError);
+                    });
 
                     video.onended = () => {
-                        recorder.stop();
+                        if (recorder.state === 'recording') {
+                            recorder.stop();
+                        }
                     };
                 } catch (e) {
+                    cleanup();
                     reject(e instanceof Error ? e : new Error(String(e)));
                 }
             };
             
             video.onerror = () => {
-                 URL.revokeObjectURL(video.src);
+                 cleanup();
                  reject(new Error("Error loading video for processing."));
             };
 
         } catch (error: any) {
+            cleanup();
             reject(error instanceof Error ? error : new Error(String(error)));
         }
     });
@@ -600,7 +651,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const photoInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
     const [formError, setFormError] = useState<string | null>(null);
-    const [fullscreenMedia, setFullscreenMedia] = useState<{ type: 'image' | 'video'; src: string } | null>(null);
+    const [fullscreenMedia, setFullscreenMedia] = useState<{ type: 'image' | 'video'; data: string; mimeType?: string; } | null>(null);
+    const [videoObjectUrl, setVideoObjectUrl] = useState<string | null>(null);
     const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
 
     // Media processing queue state
@@ -625,6 +677,34 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const expensePhotoInputRef = useRef<HTMLInputElement>(null);
 
     const updateEntry = (updates: Partial<JournalEntry>) => setCurrentEntry(prev => ({ ...prev, ...updates }));
+
+    useEffect(() => {
+        let objectUrl: string | null = null;
+        if (fullscreenMedia?.type === 'video') {
+            try {
+                const byteCharacters = atob(fullscreenMedia.data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: fullscreenMedia.mimeType });
+                objectUrl = URL.createObjectURL(blob);
+                setVideoObjectUrl(objectUrl);
+            } catch(e) {
+                console.error("Failed to create blob from base64 data for video playback.", e);
+                setVideoObjectUrl(`data:${fullscreenMedia.mimeType};base64,${fullscreenMedia.data}`);
+            }
+        } else {
+            setVideoObjectUrl(null); // Clear if not a video
+        }
+        
+        return () => {
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, [fullscreenMedia]);
 
     const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files) return;
@@ -680,6 +760,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             try {
                 if (fileToProcess.type.startsWith('image/')) {
                     const base64 = await compressImageAndConvertToBase64(fileToProcess);
+                    const thumbnailBase64 = await generateThumbnail(base64);
                     const analysis: JournalImageAnalysis | null = await geminiService.analyzeImageForJournal(base64, fileToProcess.type, location);
 
                     if (!analysis) throw new Error("فشل تحليل الصورة.");
@@ -689,19 +770,42 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         const newExpense: Expense = {
                             id: generateId(), description: expenseData.description, amount: expenseData.amount,
                             currency: expenseData.currency, amountInSAR: expenseData.amountInSAR,
-                            photos: [{ id: generateId(), base64, lat: location?.lat, lon: location?.lon }]
+                            photos: [{ id: generateId(), base64, thumbnailBase64, lat: location?.lat, lon: location?.lon }]
                         };
                         updateEntry({ expenses: [...currentEntry.expenses, newExpense] });
                     } else {
                         const description = (analysis.data as any)?.description || 'لم يتمكن الذكاء الاصطناعي من وصف هذه الصورة.';
-                        const newPhoto: JournalPhoto = { id: generateId(), base64, description, lat: location?.lat, lon: location?.lon };
+                        const newPhoto: JournalPhoto = { id: generateId(), base64, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
                         const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
                         updateEntry({ photos: [...currentEntry.photos, newPhoto], notes: newNotes.trim() });
                     }
                 } else if (fileToProcess.type.startsWith('video/')) {
-                    const { base64, mimeType } = await blobToBase64(fileToProcess);
+                    setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    const MAX_DURATION_SECONDS = 60;
+                    const trimmedVideoBlob = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+
+                    setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    let base64 = await blobToBase64(trimmedVideoBlob);
+                    let mimeType = trimmedVideoBlob.type;
+                    
+                    const thumbnailBase64 = await generateVideoThumbnail(new File([trimmedVideoBlob], fileToProcess.name, { type: mimeType })).catch(e => {
+                        console.warn("Thumbnail generation failed, skipping:", e);
+                        return undefined;
+                    });
+
                     const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
-                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, description, lat: location?.lat, lon: location?.lon };
+                    
+                    setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    try {
+                        const mutedVideo = await removeAudioFromVideo(base64, mimeType);
+                        base64 = mutedVideo.base64;
+                        mimeType = mutedVideo.mimeType;
+                    } catch (muteError) {
+                        console.error("Could not remove audio from video, storing original:", muteError);
+                        setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
+                    }
+
+                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
                     const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
                     updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
                 }
@@ -720,7 +824,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     const handleNoteFromAudio = async (audioBlob: Blob) => {
         setIsProcessing(true);
-        const { base64, mimeType } = await blobToBase64(audioBlob);
+        const base64 = await blobToBase64(audioBlob);
+        const mimeType = audioBlob.type || 'audio/webm';
         const transcribedText = await geminiService.transcribeAudio(base64, mimeType);
         if (transcribedText) {
             updateEntry({ notes: currentEntry.notes ? `${currentEntry.notes}\n${transcribedText}` : transcribedText });
@@ -752,6 +857,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         setIsProcessingExpense(true);
         const file = e.target.files[0];
         const base64 = await compressImageAndConvertToBase64(file);
+        const thumbnailBase64 = await generateThumbnail(base64);
         const result = await geminiService.analyzeReceiptImage(base64);
         if (result) {
             setExpenseData({
@@ -760,7 +866,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 amount: result.amount,
                 currency: result.currency,
                 amountInSAR: result.amountInSAR,
-                photo: { id: generateId(), base64, lat: location?.lat, lon: location?.lon }
+                photo: { id: generateId(), base64, thumbnailBase64, lat: location?.lat, lon: location?.lon }
             });
         }
         setIsProcessingExpense(false);
@@ -769,7 +875,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const handleAddExpenseFromAudioInModal = async (audioBlob: Blob) => {
         setIsProcessingExpense(true);
         try {
-            const { base64, mimeType } = await blobToBase64(audioBlob);
+            const base64 = await blobToBase64(audioBlob);
+            const mimeType = audioBlob.type || 'audio/webm';
             const result = await geminiService.analyzeExpenseFromAudio(base64, mimeType);
             if (result) {
                 setExpenseData(p => ({
@@ -798,9 +905,10 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         if (!e.target.files) return;
         const file = e.target.files[0];
         const base64 = await compressImageAndConvertToBase64(file);
+        const thumbnailBase64 = await generateThumbnail(base64);
         setExpenseData(prev => ({
             ...prev,
-            photo: { id: generateId(), base64, lat: location?.lat, lon: location?.lon }
+            photo: { id: generateId(), base64, thumbnailBase64, lat: location?.lat, lon: location?.lon }
         }));
     };
     
@@ -982,7 +1090,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     <input type="file" accept="image/*" ref={expensePhotoInputRef} onChange={handleExpensePhotoUpload} className="hidden" />
                     {expenseData.photo ? (
                         <div className="relative w-full h-32">
-                           <img src={`data:image/jpeg;base64,${expenseData.photo.base64}`} alt="معاينة المصروف" className="w-full h-full object-cover rounded-lg" />
+                           <img src={`data:image/jpeg;base64,${expenseData.photo.thumbnailBase64 || expenseData.photo.base64}`} alt="معاينة المصروف" className="w-full h-full object-cover rounded-lg" loading="lazy" />
                            <button onClick={() => setExpenseData(p => ({...p, photo: null}))} className="absolute top-1 right-1 bg-black/50 p-1 rounded-full"><X size={16}/></button>
                         </div>
                     ) : (
@@ -1015,9 +1123,11 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         <X size={32} />
                     </button>
                     {fullscreenMedia.type === 'image' ? (
-                        <img src={fullscreenMedia.src} alt="عرض مكبر" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()}/>
+                        <img src={fullscreenMedia.data} alt="عرض مكبر" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()}/>
                     ) : (
-                        <video src={fullscreenMedia.src} controls autoPlay className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()}/>
+                        videoObjectUrl ?
+                        <video src={videoObjectUrl} controls autoPlay className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()}/>
+                        : <LoadingSpinner message="جاري تحميل الفيديو..."/>
                     )}
                 </div>
             )}
@@ -1056,29 +1166,41 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 </div>
                 <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
                     <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
                 </div>
                 {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
                     <div className="flex gap-2 overflow-x-auto pb-2">
                         {currentEntry.photos.map(p => {
-                            const src = `data:image/jpeg;base64,${p.base64}`;
+                            const src = `data:image/jpeg;base64,${p.thumbnailBase64 || p.base64}`;
+                            const fullSrc = `data:image/jpeg;base64,${p.base64}`;
                             return (
                                 <div key={p.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', src })} loading="lazy" />
+                                    <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', data: fullSrc })} loading="lazy" />
                                     <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }} className="absolute top-1 right-1 bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors z-10" aria-label="حذف الصورة"><X size={14} /></button>
-                                    {p.lat && p.lon && (<a href={`https://www.google.com/maps?q=${p.lat},${p.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 left-1 bg-blue-500/80 text-white rounded-full p-1 hover:bg-blue-500 transition-colors z-10" aria-label="عرض الموقع على الخريطة"><MapPin size={14} /></a>)}
+                                    {p.lat && p.lon && (<a href={`https://www.google.com/maps?q=${p.lat},${p.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1.5 left-1.5 z-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-label="عرض الموقع على الخريطة"><MapPin size={16} /></a>)}
                                 </div>
                             );
                         })}
                         {currentEntry.videos.map(v => {
-                            const src = `data:${v.mimeType};base64,${v.base64}`;
+                            const thumbSrc = v.thumbnailBase64 ? `data:image/jpeg;base64,${v.thumbnailBase64}` : null;
                             return (
-                                <div key={v.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <div className="w-full h-full cursor-pointer bg-gray-900 rounded-lg flex items-center justify-center" onClick={() => setFullscreenMedia({ type: 'video', src })}>
-                                        <VideoIcon className="text-white/80" size={32} />
+                                <div key={v.id} className="relative w-24 h-24 flex-shrink-0 group bg-gray-900 rounded-lg">
+                                    {thumbSrc ? (
+                                        <img src={thumbSrc} alt="صورة مصغرة للفيديو" className="w-full h-full object-cover rounded-lg cursor-pointer" onClick={() => setFullscreenMedia({ type: 'video', data: v.base64, mimeType: v.mimeType })} loading="lazy" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center">
+                                            <VideoIcon className="text-white/80" size={32} />
+                                        </div>
+                                    )}
+                                    <div 
+                                        className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-lg"
+                                        onClick={() => setFullscreenMedia({ type: 'video', data: v.base64, mimeType: v.mimeType })}
+                                    >
+                                        <VideoIcon className="text-white drop-shadow-lg" size={32} />
                                     </div>
+
                                     {processingVideoId === v.id && (
                                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg z-20">
                                             <Loader2 className="animate-spin text-white" size={32} />
@@ -1086,9 +1208,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                                     )}
                                     <div className="absolute top-1 right-1 flex flex-col gap-1 z-10">
                                         <button onClick={(e) => { e.stopPropagation(); handleDeleteVideo(v.id); }} className="bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors" aria-label="حذف الفيديو"><X size={14} /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMuteVideo(v.id); }} className="bg-gray-800/80 text-white rounded-full p-1 hover:bg-gray-900 transition-colors" aria-label="إزالة الصوت"><Volume2 size={14} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMuteVideo(v.id); }} className="bg-gray-800/80 text-white rounded-full p-1 hover:bg-gray-900 transition-colors" aria-label="إزالة الصوت" title="إزالة الصوت نهائياً"><VolumeX size={14} /></button>
                                     </div>
-                                    {v.lat && v.lon && (<a href={`https://www.google.com/maps?q=${v.lat},${v.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 left-1 bg-blue-500/80 text-white rounded-full p-1 hover:bg-blue-500 transition-colors z-10" aria-label="عرض الموقع على الخريطة"><MapPin size={14} /></a>)}
+                                    {v.lat && v.lon && (<a href={`https://www.google.com/maps?q=${v.lat},${v.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1.5 left-1.5 z-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-label="عرض الموقع على الخريطة"><MapPin size={16} /></a>)}
                                 </div>
                             );
                         })}
@@ -1110,9 +1232,10 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                             <div className="flex items-center gap-3 flex-grow min-w-0">
                                 {exp.photos && exp.photos[0] && (
                                     <img 
-                                        src={`data:image/jpeg;base64,${exp.photos[0].base64}`} 
+                                        src={`data:image/jpeg;base64,${exp.photos[0].thumbnailBase64 || exp.photos[0].base64}`} 
                                         alt={exp.description}
                                         className="w-14 h-14 object-cover rounded-md flex-shrink-0"
+                                        loading="lazy"
                                     />
                                 )}
                                 <span className="text-gray-800 dark:text-gray-100 truncate">{exp.description}</span>

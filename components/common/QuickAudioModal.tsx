@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { Mic, Check, Loader2 } from 'lucide-react';
 import AudioRecorder from './AudioRecorder';
@@ -16,7 +17,8 @@ const QuickAudioModal: React.FC<QuickAudioModalProps> = ({ onClose, onAudioAnaly
     const handleRecordingComplete = async (audioBlob: Blob) => {
         setStatus('processing');
         try {
-            const { base64, mimeType } = await blobToBase64(audioBlob);
+            const base64 = await blobToBase64(audioBlob);
+            const mimeType = audioBlob.type || 'audio/webm';
             const analysis = await geminiService.analyzeAudioForJournal(base64, mimeType);
 
             if (analysis) {

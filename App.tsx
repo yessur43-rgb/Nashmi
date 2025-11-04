@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/common/Header';
 import CaptureScreen from './components/CaptureScreen';
 import ProductAnalyzer from './components/ProductAnalyzer';
@@ -12,13 +13,14 @@ import CityCenterFinder from './components/CityCenterFinder';
 import ParkMyCar from './components/ParkMyCar';
 import MyAccommodation from './components/MyAccommodation';
 import Favorites from './components/Favorites';
+// FIX: Removed unused 'StudioView' import which is not exported from MySpace.
 import MySpace from './components/MySpace';
 import AskMeAnything from './components/AskMeAnything';
 import LocationInfo from './components/common/LocationInfo';
 import ApiKeyModal from './components/common/ApiKeyModal';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import Onboarding from './components/Onboarding';
-import { Tool, Activity, StoreResult, Place, RoutePlace } from './types';
+import { Tool, Activity, StoreResult, Place, RoutePlace, Trip } from './types';
 import * as db from './services/dbService';
 import * as geminiService from './services/geminiService';
 

@@ -11,7 +11,7 @@ export const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-export const blobToBase64 = (blob: Blob): Promise<{base64: string, mimeType: string}> => {
+export const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(blob);
@@ -21,9 +21,7 @@ export const blobToBase64 = (blob: Blob): Promise<{base64: string, mimeType: str
       if (parts.length < 2) {
         return reject(new Error("Invalid data URL."));
       }
-      const mimeType = parts[0].split(':')[1].split(';')[0];
-      const base64 = parts[1];
-      resolve({ base64, mimeType });
+      resolve(parts[1]);
     };
     reader.onerror = (e) => reject(e);
   });
@@ -64,6 +62,110 @@ export const compressImageAndConvertToBase64 = (file: File, maxDimension: number
     reader.onerror = (e) => reject(e);
   });
 };
+
+export const generateThumbnail = (base64: string, maxDimension: number = 200): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = `data:image/jpeg;base64,${base64}`;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round(height * (maxDimension / width));
+          width = maxDimension;
+        } else {
+          width = Math.round(width * (maxDimension / height));
+          height = maxDimension;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Could not get canvas context'));
+      ctx.drawImage(img, 0, 0, width, height);
+      // Use lower quality for thumbnail
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = (e) => reject(e);
+  });
+};
+
+export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    const canvas = document.createElement('canvas');
+    const url = URL.createObjectURL(file);
+
+    video.src = url;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onError);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+    };
+
+    const onSeeked = () => {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Could not get canvas context');
+        }
+        
+        const maxDimension = 200;
+        let { videoWidth, videoHeight } = video;
+        if (videoWidth === 0 || videoHeight === 0) {
+          cleanup();
+          return reject(new Error('Video has no dimensions'));
+        }
+        
+        let width = videoWidth;
+        let height = videoHeight;
+        
+        if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+                height = Math.round(height * (maxDimension / width));
+                width = maxDimension;
+            } else {
+                width = Math.round(width * (maxDimension / height));
+                height = maxDimension;
+            }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        
+        ctx.drawImage(video, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        cleanup();
+        resolve(dataUrl.split(',')[1]);
+      } catch (e) {
+        cleanup();
+        reject(e);
+      }
+    };
+
+    const onError = (e: Event | string) => {
+      cleanup();
+      const errorMsg = (e instanceof Event && e.target) ? (e.target as HTMLVideoElement).error?.message : e.toString();
+      reject(new Error(`Error loading video for thumbnail: ${errorMsg}`));
+    };
+
+    const onLoadedMetadata = () => {
+      video.currentTime = Math.min(seekToTime, video.duration || 0);
+    };
+
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('error', onError);
+  });
+};
+
 
 export const getStatusColor = (status: 'حلال' | 'حرام' | 'مشبوه') => {
     switch (status) {
@@ -119,4 +221,99 @@ export const parseDistance = (distanceStr: string): number => {
     }
     // Assume meters if no unit or 'متر'
     return value;
+};
+
+export const getSupportedVideoMimeType = () => {
+    const mimeTypes = [
+        'video/mp4;codecs=avc1',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+    ];
+    for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+            return { mimeType };
+        }
+    }
+    return {};
+};
+
+export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.style.display = 'none';
+    const url = URL.createObjectURL(videoBlob);
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      if (video.parentElement) {
+        document.body.removeChild(video);
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      if (video.duration <= maxDurationSeconds) {
+        cleanup();
+        return resolve(videoBlob);
+      }
+
+      try {
+        const stream = (video as any).captureStream() || (video as any).mozCaptureStream();
+        if (!stream) {
+            cleanup();
+            return reject(new Error('captureStream() is not supported by this browser.'));
+        }
+        
+        const options = getSupportedVideoMimeType();
+        const recorder = new MediaRecorder(stream, options);
+        const finalMimeType = options.mimeType || 'video/webm';
+
+        const chunks: Blob[] = [];
+        recorder.ondataavailable = e => chunks.push(e.data);
+
+        recorder.onstop = () => {
+          cleanup();
+          const trimmedBlob = new Blob(chunks, { type: finalMimeType });
+           if (trimmedBlob.size === 0) {
+              return reject(new Error("Trimming resulted in an empty video file."));
+          }
+          resolve(trimmedBlob);
+        };
+
+        recorder.onerror = (e) => {
+          cleanup();
+          reject(e);
+        };
+
+        recorder.start();
+        video.play().catch(playError => {
+            cleanup();
+            reject(playError);
+        });
+
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            recorder.stop();
+          }
+          if (!video.paused) {
+            video.pause();
+          }
+        }, maxDurationSeconds * 1000);
+
+      } catch (e) {
+        cleanup();
+        reject(e);
+      }
+    };
+
+    video.onerror = (e) => {
+      cleanup();
+      reject(new Error(`Error loading video for trimming: ${e}`));
+    };
+
+    document.body.appendChild(video);
+  });
 };

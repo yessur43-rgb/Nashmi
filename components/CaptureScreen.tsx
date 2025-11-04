@@ -1,8 +1,10 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, compressImageAndConvertToBase64 } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateVideoThumbnail, getSupportedVideoMimeType } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, VideoOff, MicOff, CameraOff, AlertTriangle, Circle, Loader2, FlipHorizontal, Zap, ZapOff } from 'lucide-react';
 
@@ -31,6 +33,36 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [captureIndicator, setCaptureIndicator] = useState(false);
+  
+  const [recordingTime, setRecordingTime] = useState(0);
+  const timerIntervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isRecording && activeMode === 'video') {
+        setRecordingTime(0);
+        timerIntervalRef.current = window.setInterval(() => {
+            setRecordingTime(prevTime => prevTime + 1);
+        }, 1000);
+    } else {
+        if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+            timerIntervalRef.current = null;
+        }
+        setRecordingTime(0);
+    }
+
+    return () => {
+        if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+        }
+    };
+  }, [isRecording, activeMode]);
+  
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+  };
 
   const stopCameraStream = () => {
     if (streamRef.current) {
@@ -186,23 +218,38 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     } else {
       if (!streamRef.current || !location) return;
       setIsRecording(true);
-      const options = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-          ? { mimeType: 'video/webm;codecs=vp9' }
-          : MediaRecorder.isTypeSupported('video/webm')
-          ? { mimeType: 'video/webm' }
-          : {};
+      const options = getSupportedVideoMimeType();
       mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
       audioChunksRef.current = [];
       mediaRecorderRef.current.ondataavailable = e => audioChunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = async () => {
         setIsRecording(false);
         setIsProcessing(true);
-        const videoBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType });
+        const mimeType = mediaRecorderRef.current?.mimeType || 'video/webm';
+        const videoBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const videoFile = new File([videoBlob], `recording-${Date.now()}.webm`, { type: mimeType });
+
         try {
             const { trip, entry } = await getOrCreateActiveJournalObjects();
-            const { base64, mimeType } = await blobToBase64(videoBlob);
+            const base64 = await blobToBase64(videoBlob);
+            
+            const thumbnailBase64 = await generateVideoThumbnail(videoFile).catch(e => {
+                console.warn("Live capture thumbnail generation failed, skipping:", e);
+                return undefined;
+            });
+
             const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
-            const newVideo: JournalVideo = { id: generateId(), base64, mimeType, description, lat: location.lat, lon: location.lon };
+
+            const newVideo: JournalVideo = { 
+                id: generateId(), 
+                base64, 
+                mimeType, 
+                thumbnailBase64,
+                description, 
+                lat: location!.lat, 
+                lon: location!.lon 
+            };
+            
             entry.videos.push(newVideo);
             if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
             await db.putTrip(trip);
@@ -213,6 +260,13 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         }
       };
       mediaRecorderRef.current.start();
+      
+      const MAX_RECORDING_MS = 60 * 1000;
+      setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+      }, MAX_RECORDING_MS);
     }
   };
   
@@ -231,10 +285,11 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             mediaRecorderRef.current.onstop = async () => {
                 setIsRecording(false);
                 setIsProcessing(true);
-                const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType });
+                const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
                  try {
                     const { trip, entry } = await getOrCreateActiveJournalObjects();
-                    const { base64, mimeType } = await blobToBase64(audioBlob);
+                    const base64 = await blobToBase64(audioBlob);
                     const analysis = await geminiService.analyzeAudioForJournal(base64, mimeType);
 
                     if (analysis?.type === 'note') {
@@ -303,11 +358,17 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
       )}
 
       {/* Header Controls */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/60 to-transparent">
+      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/60 to-transparent z-10">
         <div className="flex items-center gap-2">
             <button onClick={toggleDarkMode} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><Sun/></button>
             <button onClick={onOpenApiKeyModal} className="p-2 bg-black/30 rounded-full backdrop-blur-sm"><Key/></button>
         </div>
+         {isRecording && activeMode === 'video' && (
+            <div className="bg-red-500 text-white px-3 py-1 rounded-full font-mono text-sm flex items-center gap-2 animate-pulse">
+                <Circle fill="white" size={8} />
+                <span>{formatTime(recordingTime)}</span>
+            </div>
+        )}
         <div className="flex items-center gap-2">
           {activeMode !== 'audio' &&
             <button onClick={toggleFlash} className={`p-2 bg-black/30 rounded-full backdrop-blur-sm ${isFlashOn ? 'text-yellow-400' : 'text-white'}`}>

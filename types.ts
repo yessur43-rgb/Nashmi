@@ -88,7 +88,7 @@ export type FindItImageResult = FindItImagePlaceResult | FindItImageProductResul
 
 
 export interface Activity {
-    name: string;
+    name:string;
     description: string;
     category: string;
     suitability: string;
@@ -134,6 +134,7 @@ export interface CityCenterInfo {
 export interface JournalPhoto {
     id: string;
     base64: string;
+    thumbnailBase64?: string;
     description?: string;
     lat?: number;
     lon?: number;
@@ -143,6 +144,7 @@ export interface JournalVideo {
     id: string;
     base64: string;
     mimeType: string;
+    thumbnailBase64?: string;
     description?: string;
     lat?: number;
     lon?: number;
