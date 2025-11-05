@@ -5,8 +5,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-// FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
+// FIX: Imported removeAudioFromVideo from helpers to resolve error.
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, getLocalDateString, removeAudioFromVideo } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -15,7 +15,7 @@ import {
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
     Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon, VolumeX,
     Receipt, Type, Save, X, MapPin, BookOpen, Share2, Loader2,
-    Library, Grid, Clapperboard, Filter, CheckSquare, XCircle, FileArchive, BookText
+    Library, Grid, Clapperboard, Filter, CheckSquare, XCircle, FileArchive, BookText, Check
 } from 'lucide-react';
 
 interface ToolProps {
@@ -183,8 +183,7 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
                 entry={selectedEntry} 
                 onSave={async (updatedTrip) => {
                     await handleUpdateTrip(updatedTrip);
-                    setCurrentView('tripDetails');
-                    setSelectedEntry(null);
+                    // No longer need to switch view, just update state
                 }} 
                 onCancel={() => { setCurrentView('tripDetails'); setSelectedEntry(null); }}
                 location={location}
@@ -611,7 +610,7 @@ const TripDetails: React.FC<{
     );
 };
 
-const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
+const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => Promise<void>; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: getLocalDateString(), title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
@@ -622,6 +621,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
     const [isStoryMode, setIsStoryMode] = useState(false);
     const [enhancingPhotoId, setEnhancingPhotoId] = useState<string | null>(null);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const debounceTimeoutRef = useRef<number | null>(null);
+    const isInitialMount = useRef(true);
 
     // Media processing queue state
     const [mediaQueue, setMediaQueue] = useState<{ file: File; totalInBatch: number }[]>([]);
@@ -646,6 +648,52 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     const updateEntry = (updates: Partial<JournalEntry>) => setCurrentEntry(prev => ({ ...prev, ...updates }));
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // Auto-save useEffect
+    useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
+
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
+
+        setSaveStatus('saving');
+
+        debounceTimeoutRef.current = window.setTimeout(async () => {
+            if (mediaQueue.length > 0) {
+                 setFormError("سيتم الحفظ بعد اكتمال معالجة الوسائط.");
+                 setSaveStatus('idle');
+                 return;
+            }
+            try {
+                setFormError(null);
+                const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
+                const isNewEntry = !entry || !trip.entries.some(e => e.id === entry.id);
+                const updatedEntries = isNewEntry
+                    ? [...trip.entries.filter(e => e.id !== finalEntry.id), finalEntry]
+                    : trip.entries.map(e => (e.id === finalEntry.id ? finalEntry : e));
+                
+                await onSave({ ...trip, entries: updatedEntries });
+                
+                setSaveStatus('saved');
+                setTimeout(() => setSaveStatus('idle'), 2000);
+
+            } catch (error) {
+                console.error("Auto-save failed:", error);
+                setFormError("فشل الحفظ التلقائي.");
+                setSaveStatus('idle');
+            }
+        }, 1500);
+
+        return () => {
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+        };
+    }, [currentEntry, onSave]);
 
 
     useEffect(() => {
@@ -990,6 +1038,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         setProcessingVideoId(videoId);
         setFormError(null);
         try {
+            // FIX: Incorrectly calling geminiService. Corrected to call from helpers.
             const { base64, mimeType } = await removeAudioFromVideo(videoToMute.base64, videoToMute.mimeType);
             const mutedVideo: JournalVideo = { ...videoToMute, base64, mimeType };
             
@@ -1009,26 +1058,17 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         updateEntry({ videos: currentEntry.videos.filter(v => v.id !== videoId) });
     };
 
-    const handleSave = async () => {
-        if (mediaQueue.length > 0) {
-            setFormError("يرجى الانتظار حتى تكتمل معالجة جميع الصور ومقاطع الفيديو.");
-            return;
-        }
-        setFormError(null);
-        setIsProcessing(true);
-        try {
-            const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
-            const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
-            onSave({ ...trip, entries: updatedEntries });
-        } catch (error) {
-            console.error("Error saving entry:", error);
-            setFormError("حدث خطأ أثناء الحفظ.");
-        } finally {
-            setIsProcessing(false);
-        }
-    };
-    
     const totalExpenses = currentEntry.expenses.reduce((sum, exp) => sum + exp.amountInSAR, 0);
+    
+    const SaveStatusIndicator = () => {
+        if (saveStatus === 'saving') {
+            return <div className="flex items-center gap-1 text-sm text-yellow-500"><Loader2 size={16} className="animate-spin" /><span>جاري الحفظ...</span></div>;
+        }
+        if (saveStatus === 'saved') {
+            return <div className="flex items-center gap-1 text-sm text-green-500"><Check size={16} /><span>تم الحفظ</span></div>;
+        }
+        return <div className="h-5"></div>; // Placeholder for alignment
+    };
 
     const renderExpenseModal = () => (
         <div className="fixed inset-0 bg-black/70 z-40 flex items-center justify-center p-4 animate-fade-in" onClick={closeExpenseModal}>
@@ -1128,13 +1168,15 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     )}
                 </div>
             )}
-            {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message="جاري الحفظ..."/></div>}
             
             {formError && <div className="p-4 my-2 bg-red-100 text-red-700 rounded-lg text-center">{formError}</div>}
 
             <div className="flex items-center justify-between">
                 <button onClick={onCancel} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
-                <h2 className="text-2xl font-bold">{entry ? "تفاصيل اليوم" : "يوم جديد"}</h2>
+                <div className="flex flex-col items-center">
+                     <h2 className="text-2xl font-bold">{entry ? "تفاصيل اليوم" : "يوم جديد"}</h2>
+                     <SaveStatusIndicator />
+                </div>
                 <div className="w-10"></div>
             </div>
             
@@ -1156,135 +1198,101 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     <input type="text" value={currentEntry.title} onChange={e => updateEntry({ title: e.target.value })} placeholder="عنوان اليوم (مثال: يوم في الجبال)" className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
                     <div className="relative">
                         <textarea value={currentEntry.notes} onChange={e => updateEntry({ notes: e.target.value })} placeholder="اكتب ملاحظاتك هنا..." rows={currentEntry.notes ? 8 : 4} className="w-full p-3 pl-12 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600"></textarea>
-                        <AudioRecorder onRecordingComplete={handleNoteFromAudio} className="absolute bottom-2 left-2"/>
+                        <AudioRecorder onRecordingComplete={handleNoteFromAudio} disabled={isProcessing} className="absolute left-2 top-1/2 -translate-y-1/2" />
                     </div>
+                    <button onClick={handleSummarizeEntry} disabled={isProcessing} className="w-full flex items-center justify-center gap-2 p-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+                        <Sparkles size={20}/><span>اكتب لي قصة هذا اليوم</span>
+                    </button>
                 </>
             )}
-
-            <button onClick={handleSummarizeEntry} disabled={isProcessing || isProcessingMedia || (currentEntry.notes.trim() === '' && currentEntry.photos.length === 0 && currentEntry.videos.length === 0)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
-                <Sparkles size={20}/><span>{isStoryMode ? 'أعد كتابة القصة' : 'لخص لي يومي بالذكاء الاصطناعي'}</span>
-            </button>
+            
+            <input type="file" accept="image/*,video/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
             
              {isProcessingMedia && (
-                <div className="p-3 my-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded-lg text-center flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin" size={20} />
-                    <span>{processingStatus}</span>
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded-lg text-center flex items-center justify-center gap-2">
+                    <Loader2 className="animate-spin" /><span>{processingStatus}</span>
                 </div>
-            )}
+             )}
 
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
-                <h3 className="font-bold">الصور والفيديوهات</h3>
-                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
-                <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>
-                    <button onClick={() => videoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-purple-500 text-white rounded-lg font-semibold disabled:opacity-50"><VideoIcon/><span>إضافة فيديو</span></button>
-                </div>
-                {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
-                    <div className="flex gap-2 overflow-x-auto pb-2">
-                        {currentEntry.photos.map(p => {
-                            const src = `data:image/jpeg;base64,${p.thumbnailBase64 || p.base64}`;
-                            const fullSrc = `data:image/jpeg;base64,${p.base64}`;
-                            return (
-                                <div key={p.id} className="relative w-24 h-24 flex-shrink-0 group">
-                                    <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', data: fullSrc })} loading="lazy" />
-                                     {enhancingPhotoId === p.id && (
-                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg z-20">
-                                            <Loader2 className="animate-spin text-white" size={28} />
-                                        </div>
-                                    )}
-                                    <div className="absolute top-1 right-1 flex gap-1 z-10">
-                                        <button onClick={(e) => { e.stopPropagation(); handleEnhancePhoto(p.id); }} className="bg-yellow-500/80 text-white rounded-full p-1 hover:bg-yellow-500 transition-colors" aria-label="تحسين الصورة"><Sparkles size={14} /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }} className="bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors" aria-label="حذف الصورة"><X size={14} /></button>
-                                    </div>
-                                    {p.lat && p.lon && (<a href={`https://www.google.com/maps?q=${p.lat},${p.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1.5 left-1.5 z-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-label="عرض الموقع على الخريطة"><MapPin size={16} /></a>)}
-                                </div>
-                            );
-                        })}
-                        {currentEntry.videos.map(v => {
-                            const thumbSrc = v.thumbnailBase64 ? `data:image/jpeg;base64,${v.thumbnailBase64}` : null;
-                            return (
-                                <div key={v.id} className="relative w-24 h-24 flex-shrink-0 group bg-gray-900 rounded-lg">
-                                    {thumbSrc ? (
-                                        <img src={thumbSrc} alt="صورة مصغرة للفيديو" className="w-full h-full object-cover rounded-lg cursor-pointer" onClick={() => setFullscreenMedia({ type: 'video', data: v.base64, mimeType: v.mimeType })} loading="lazy" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center">
-                                            <VideoIcon className="text-white/80" size={32} />
-                                        </div>
-                                    )}
-                                    <div 
-                                        className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-lg"
-                                        onClick={() => setFullscreenMedia({ type: 'video', data: v.base64, mimeType: v.mimeType })}
-                                    >
-                                        <VideoIcon className="text-white drop-shadow-lg" size={32} />
-                                    </div>
-
-                                    {processingVideoId === v.id && (
-                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg z-20">
-                                            <Loader2 className="animate-spin text-white" size={32} />
-                                        </div>
-                                    )}
-                                    <div className="absolute top-1 right-1 flex flex-col gap-1 z-10">
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteVideo(v.id); }} className="bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors" aria-label="حذف الفيديو"><X size={14} /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMuteVideo(v.id); }} className="bg-gray-800/80 text-white rounded-full p-1 hover:bg-gray-900 transition-colors" aria-label="إزالة الصوت" title="إزالة الصوت نهائياً"><VolumeX size={14} /></button>
-                                    </div>
-                                    {v.lat && v.lon && (<a href={`https://www.google.com/maps?q=${v.lat},${v.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1.5 left-1.5 z-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-label="عرض الموقع على الخريطة"><MapPin size={16} /></a>)}
-                                </div>
-                            );
-                        })}
+            {/* Media and Expenses Section */}
+            <div className="space-y-6">
+                 {/* Media Section */}
+                <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-xl font-bold">الصور والفيديوهات ({currentEntry.photos.length + currentEntry.videos.length})</h3>
+                        <button onClick={() => photoInputRef.current?.click()} className="p-2 bg-primary text-white rounded-full shadow-md hover:bg-primary-dark"><Plus/></button>
                     </div>
-                )}
-            </div>
-            
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
-                <div className="flex justify-between items-center">
-                    <h3 className="font-bold">مصاريف اليوم</h3>
-                    <p className="font-bold text-primary dark:text-primary-light">إجمالي الصرف: {totalExpenses.toFixed(2)} SAR</p>
-                </div>
-                 <button onClick={() => setIsExpenseModalOpen(true)} className="w-full text-center py-3 text-primary dark:text-primary-light font-semibold hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg">
-                    + إضافة مصروف
-                </button>
-                <ul className="space-y-2">
-                    {currentEntry.expenses.map(exp => (
-                        <li key={exp.id} className="bg-gray-100 dark:bg-gray-700/50 p-3 rounded-lg shadow-sm flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3 flex-grow min-w-0">
-                                {exp.photos && exp.photos[0] && (
-                                    <img 
-                                        src={`data:image/jpeg;base64,${exp.photos[0].thumbnailBase64 || exp.photos[0].base64}`} 
-                                        alt={exp.description}
-                                        className="w-14 h-14 object-cover rounded-md flex-shrink-0"
-                                        loading="lazy"
-                                    />
-                                )}
-                                <span className="text-gray-800 dark:text-gray-100 truncate">{exp.description}</span>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                                <div className="text-right">
-                                    <div className="flex items-center justify-end gap-2 font-bold text-primary dark:text-primary-light whitespace-nowrap">
-                                        <span>SAR {exp.amountInSAR.toFixed(2)}</span>
-                                        <button onClick={() => handleEditExpense(exp)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" aria-label="تعديل المصروف">
-                                            <Edit size={18} />
-                                        </button>
+                    {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) ? (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                             {currentEntry.photos.map(photo => (
+                                <div key={photo.id} className="relative group aspect-square">
+                                     <img src={`data:image/jpeg;base64,${photo.thumbnailBase64 || photo.base64}`} alt="Thumbnail" className="w-full h-full object-cover rounded-lg" loading="lazy" />
+                                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1 rounded-lg">
+                                        {enhancingPhotoId === photo.id ? <Loader2 className="animate-spin text-white" /> : (
+                                            <button onClick={() => handleEnhancePhoto(photo.id)} className="text-white p-1 hover:bg-white/20 rounded-full" title="تحسين الصورة"><Sparkles size={16}/></button>
+                                        )}
+                                        <button onClick={() => setFullscreenMedia({type: 'image', data: `data:image/jpeg;base64,${photo.base64}`})} className="text-white p-1 hover:bg-white/20 rounded-full" title="عرض"><ImageIcon size={16}/></button>
+                                        <button onClick={() => handleDeletePhoto(photo.id)} className="text-red-400 p-1 hover:bg-white/20 rounded-full" title="حذف"><Trash2 size={16}/></button>
                                     </div>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 font-mono text-right whitespace-nowrap">
-                                        {exp.amount} {exp.currency}
-                                    </p>
+                                    {photo.lat && <MapPin size={12} className="absolute bottom-1 right-1 text-white opacity-70"/>}
                                 </div>
-                                <button onClick={() => handleDeleteExpense(exp.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50" aria-label="حذف المصروف">
-                                    <Trash2 size={18} />
-                                </button>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            </div>
-            
-            <div className="flex gap-4 pt-4">
-                <button onClick={onCancel} className="w-full p-4 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
-                <button onClick={handleSave} className="w-full p-4 bg-primary text-white rounded-lg font-semibold" disabled={isProcessing || isProcessingMedia}>حفظ اليومية</button>
+                             ))}
+                            {currentEntry.videos.map(video => (
+                                <div key={video.id} className="relative group aspect-square">
+                                    {video.thumbnailBase64 ? <img src={`data:image/jpeg;base64,${video.thumbnailBase64}`} alt="Video thumbnail" className="w-full h-full object-cover rounded-lg" /> : <div className="w-full h-full bg-gray-700 rounded-lg flex items-center justify-center"><VideoIcon className="text-gray-400"/></div>}
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1 rounded-lg">
+                                         <button onClick={() => setFullscreenMedia({type: 'video', data: video.base64, mimeType: video.mimeType})} className="text-white p-1 hover:bg-white/20 rounded-full" title="تشغيل"><VideoIcon size={16}/></button>
+                                         {processingVideoId === video.id ? <Loader2 className="animate-spin text-white" /> : (
+                                            <button onClick={() => handleMuteVideo(video.id)} className="text-white p-1 hover:bg-white/20 rounded-full" title="إزالة الصوت"><VolumeX size={16}/></button>
+                                         )}
+                                         <button onClick={() => handleDeleteVideo(video.id)} className="text-red-400 p-1 hover:bg-white/20 rounded-full" title="حذف"><Trash2 size={16}/></button>
+                                    </div>
+                                     {video.lat && <MapPin size={12} className="absolute bottom-1 right-1 text-white opacity-70"/>}
+                                </div>
+                            ))}
+                        </div>
+                    ) : <p className="text-sm text-center text-gray-500 py-4">لم تقم بإضافة أي صور أو فيديوهات لهذا اليوم.</p>}
+                </div>
+                 {/* Expenses Section */}
+                <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-xl font-bold">المصاريف ({currentEntry.expenses.length})</h3>
+                         <button onClick={() => setIsExpenseModalOpen(true)} className="p-2 bg-teal-500 text-white rounded-full shadow-md hover:bg-teal-600"><Plus/></button>
+                    </div>
+                    {currentEntry.expenses.length > 0 ? (
+                        <div className="space-y-2">
+                             {currentEntry.expenses.map(exp => (
+                                <div key={exp.id} className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg flex items-center gap-3">
+                                    {exp.photos && exp.photos[0] ? (
+                                        <img src={`data:image/jpeg;base64,${exp.photos[0].thumbnailBase64 || exp.photos[0].base64}`} alt={exp.description} className="w-12 h-12 object-cover rounded-md flex-shrink-0" loading="lazy" />
+                                    ) : (
+                                        <div className="w-12 h-12 flex-shrink-0 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center">
+                                            <DollarSign className="text-gray-500" />
+                                        </div>
+                                    )}
+                                    <div className="flex-grow">
+                                        <p className="font-semibold">{exp.description}</p>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{exp.amount} {exp.currency}</p>
+                                    </div>
+                                    <div className="text-right flex-shrink-0">
+                                        <p className="font-bold text-primary dark:text-primary-light">{exp.amountInSAR.toFixed(2)} SAR</p>
+                                        <div className="flex gap-2 justify-end mt-1">
+                                            <button onClick={() => handleEditExpense(exp)} className="text-gray-500 hover:text-blue-500"><Edit size={16}/></button>
+                                            <button onClick={() => handleDeleteExpense(exp.id)} className="text-gray-500 hover:text-red-500"><Trash2 size={16}/></button>
+                                        </div>
+                                    </div>
+                                </div>
+                             ))}
+                              <div className="text-right font-bold pt-2 border-t-2 border-dashed dark:border-gray-700">
+                                 الإجمالي اليومي: {totalExpenses.toFixed(2)} SAR
+                             </div>
+                        </div>
+                    ) : <p className="text-sm text-center text-gray-500 py-4">لم تقم بتسجيل أي مصاريف لهذا اليوم.</p>}
+                </div>
             </div>
         </div>
     );
 };
+
 
 export default MySpace;

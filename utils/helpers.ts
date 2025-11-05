@@ -1,4 +1,5 @@
 
+
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -161,7 +162,6 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
       }
     };
 
-    // FIX: Replaced implementation to add explicit type guarding block to resolve TypeScript error on line 359.
     const onError = (e: Event | string) => {
       cleanup();
       if (typeof e === 'string') {
@@ -245,9 +245,10 @@ export const parseDistance = (distanceStr: string): number => {
 
 export const getSupportedVideoMimeType = () => {
     const mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
         'video/mp4;codecs=avc1',
         'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8,opus',
         'video/webm',
     ];
     for (const mimeType of mimeTypes) {
@@ -308,11 +309,27 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
             return reject(new Error('canvas.captureStream() is not supported by this browser.'));
         }
 
-        const stream = (canvas as any).captureStream();
+        // --- FIX START: Preserve audio track ---
+        let audioTrack: MediaStreamTrack | undefined;
+        // Check for captureStream methods to get the audio track from the source video
+        // FIX: Cast video to 'any' to fix TypeScript error for non-standard 'captureStream' property.
+        if (typeof (video as any).captureStream === 'function') {
+            const sourceStream = (video as any).captureStream();
+            [audioTrack] = sourceStream.getAudioTracks();
+        } else if (typeof (video as any).mozCaptureStream === 'function') {
+            const sourceStream = (video as any).mozCaptureStream();
+            [audioTrack] = sourceStream.getAudioTracks();
+        }
+
+        const canvasStream = (canvas as any).captureStream();
+        const [videoTrack] = canvasStream.getVideoTracks();
+
+        // Combine the canvas video track with the original audio track (if it exists)
+        const stream = audioTrack ? new MediaStream([videoTrack, audioTrack]) : canvasStream;
+        // --- FIX END ---
         
-        // FIX: Enforce a specific bitrate to control output file size and prevent memory crashes.
         const preferredOptions: MediaRecorderOptions = {
-            mimeType: 'video/webm;codecs=vp8',
+            mimeType: 'video/webm;codecs=vp8,opus',
             videoBitsPerSecond: 1 * 1024 * 1024, // 1 Mbps
         };
         let recorder: MediaRecorder;
@@ -377,7 +394,6 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
       }
     };
 
-    // FIX: Added explicit type guarding block to resolve TypeScript error on line 476.
     video.onerror = (e: Event | string) => {
       cleanup();
       if (typeof e === 'string') {
@@ -447,7 +463,6 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                     
                     const stream = (canvas as any).captureStream();
                     
-                    // FIX: Enforce a specific bitrate to control output file size and prevent memory crashes.
                     const preferredOptions: MediaRecorderOptions = {
                         mimeType: 'video/webm;codecs=vp8',
                         videoBitsPerSecond: 1 * 1024 * 1024, // 1 Mbps
@@ -519,7 +534,6 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                 }
             };
             
-// FIX: Added explicit type guarding to handle string-based errors and resolve TypeScript error.
             video.onerror = (e: Event | string) => {
                  cleanup();
                  if (typeof e === 'string') {
