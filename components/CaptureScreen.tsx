@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -154,9 +153,14 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             let finalBase64 = capturedMedia.base64 || await blobToBase64(capturedMedia.blob);
             let finalMimeType = capturedMedia.mimeType;
             if (shouldMuteVideo) {
-                const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
-                finalBase64 = muted.base64;
-                finalMimeType = muted.mimeType;
+                try {
+                    const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
+                    finalBase64 = muted.base64;
+                    finalMimeType = muted.mimeType;
+                } catch (muteError) {
+                    console.error("Could not remove audio from video, storing original:", muteError);
+                    setError("لم نتمكن من إزالة الصوت من الفيديو، سيتم حفظه بصوته الأصلي.");
+                }
             }
             const thumbnailBase64 = await generateVideoThumbnail(capturedMedia.blob).catch(() => undefined);
             const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, lat: location.lat, lon: location.lon };
