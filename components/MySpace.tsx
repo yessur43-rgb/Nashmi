@@ -750,13 +750,13 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         if (files.length === 0) return;
 
         // فحص حجم الفيديوهات قبل المعالجة
-        const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB
+        const MAX_VIDEO_SIZE = 80 * 1024 * 1024; // 80 MB (لتجنب تجاوز حد Base64)
         const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
 
         for (const file of files) {
             if (file.type.startsWith('video/')) {
                 if (file.size > MAX_VIDEO_SIZE) {
-                    setFormError(`الفيديو "${file.name}" كبير جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 100 MB`);
+                    setFormError(`الفيديو "${file.name}" كبير جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 80 MB\n\nنصيحة: قلل دقة الفيديو أو مدته قبل الرفع.`);
                     e.target.value = '';
                     return;
                 }
@@ -831,20 +831,31 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     const MAX_DURATION_SECONDS = 60;
                     const { blob: trimmedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
-                    // خطوة 2: ضغط الفيديو إذا كان مفعلاً
+                    // خطوة 2: ضغط الفيديو (إجباري إذا أكبر من 10 MB)
                     let finalVideoBlob = trimmedVideoBlob;
                     let compressionInfo = '';
+                    const FORCE_COMPRESSION_SIZE = 10 * 1024 * 1024; // 10 MB
+                    const MAX_SAFE_BASE64_SIZE = 30 * 1024 * 1024; // 30 MB (آمن لـ Base64)
 
-                    if (enableVideoCompression && trimmedVideoBlob.size > 10 * 1024 * 1024) { // ضغط إذا أكبر من 10 MB
+                    const needsCompression = trimmedVideoBlob.size > FORCE_COMPRESSION_SIZE;
+
+                    if (needsCompression) {
                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch} (${(trimmedVideoBlob.size / 1024 / 1024).toFixed(1)} MB)...`);
                         await yieldToMain();
 
                         try {
-                            const compressionOptions = {
+                            // المحاولة الأولى: ضغط بالجودة المختارة
+                            let compressionOptions = {
                                 maxWidth: compressionQuality === 'high' ? 1280 : compressionQuality === 'medium' ? 1024 : 854,
                                 maxHeight: compressionQuality === 'high' ? 720 : compressionQuality === 'medium' ? 576 : 480,
                                 quality: compressionQuality === 'high' ? 0.8 : compressionQuality === 'medium' ? 0.7 : 0.6
                             };
+
+                            // إذا كان الضغط معطلاً من المستخدم، نفرضه للفيديوهات الكبيرة
+                            if (!enableVideoCompression) {
+                                compressionOptions = { maxWidth: 1024, maxHeight: 576, quality: 0.7 };
+                                setProcessingStatus(`الفيديو كبير - يتم الضغط إجبارياً...`);
+                            }
 
                             const { blob: compressedBlob, originalSize, compressedSize, compressionRatio } = await compressVideo(trimmedVideoBlob, compressionOptions);
                             finalVideoBlob = compressedBlob;
@@ -852,15 +863,40 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                             compressionInfo = `تم ضغط الفيديو من ${(originalSize / 1024 / 1024).toFixed(1)} MB إلى ${(compressedSize / 1024 / 1024).toFixed(1)} MB (وفرت ${compressionRatio.toFixed(0)}%)`;
                             console.log(compressionInfo);
 
+                            // فحص: إذا كان الفيديو المضغوط لا يزال كبيراً جداً، نعيد الضغط بجودة أقل
+                            if (finalVideoBlob.size > MAX_SAFE_BASE64_SIZE) {
+                                console.warn(`الفيديو المضغوط لا يزال كبيراً (${(finalVideoBlob.size / 1024 / 1024).toFixed(1)} MB). إعادة ضغط بجودة أقل...`);
+                                setProcessingStatus(`إعادة ضغط بجودة أقل للأمان...`);
+                                await yieldToMain();
+
+                                // ضغط أقوى
+                                const aggressiveOptions = {
+                                    maxWidth: 640,
+                                    maxHeight: 360,
+                                    quality: 0.5
+                                };
+
+                                const { blob: recompressedBlob } = await compressVideo(finalVideoBlob, aggressiveOptions);
+                                finalVideoBlob = recompressedBlob;
+
+                                compressionInfo = `تم ضغط إضافي إلى ${(finalVideoBlob.size / 1024 / 1024).toFixed(1)} MB (360p)`;
+                                console.log(compressionInfo);
+                            }
+
                             // عرض معلومات الضغط للمستخدم
                             if (compressionRatio > 10) {
                                 setProcessingStatus(`${compressionInfo}`);
                                 await new Promise(resolve => setTimeout(resolve, 2000)); // عرض لمدة ثانيتين
                             }
                         } catch (compressionError) {
-                            console.warn("فشل ضغط الفيديو، سيتم حفظه بدون ضغط:", compressionError);
-                            // الاستمرار بدون ضغط
+                            console.error("فشل ضغط الفيديو:", compressionError);
+                            throw new Error(`فشل ضغط الفيديو. حاول فيديو أصغر أو أقصر.`);
                         }
+                    }
+
+                    // فحص نهائي: تأكد من أن الحجم آمن
+                    if (finalVideoBlob.size > MAX_SAFE_BASE64_SIZE) {
+                        throw new Error(`الفيديو كبير جداً (${(finalVideoBlob.size / 1024 / 1024).toFixed(1)} MB). الحد الآمن: 30 MB بعد الضغط.\n\nحاول:\n• فيديو أقصر (أقل من 30 ثانية)\n• دقة أقل عند التصوير`);
                     }
 
                     // خطوة 3: توليد thumbnail
@@ -874,8 +910,30 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     // خطوة 4: تحويل إلى base64 وتحليل
                     setProcessingStatus(`تحليل محتوى الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
-                    let base64 = await blobToBase64(finalVideoBlob);
+
+                    let base64: string;
                     let mimeType = finalVideoBlob.type;
+
+                    try {
+                        base64 = await blobToBase64(finalVideoBlob);
+
+                        // فحص إضافي: تحقق من حجم Base64
+                        const base64Size = base64.length;
+                        const base64SizeMB = base64Size / 1024 / 1024;
+
+                        console.log(`حجم Base64: ${base64SizeMB.toFixed(2)} MB`);
+
+                        // إذا تجاوز 40 MB في Base64، هذا خطير
+                        if (base64SizeMB > 40) {
+                            throw new Error(`OVERSIZED_BASE64:${base64SizeMB.toFixed(1)}`);
+                        }
+                    } catch (error: any) {
+                        if (error.message?.includes('Invalid string length') || error.message?.includes('OVERSIZED_BASE64')) {
+                            const sizeInfo = error.message.split(':')[1] || 'غير معروف';
+                            throw new Error(`الفيديو كبير جداً للحفظ (${sizeInfo} MB في الذاكرة).\n\n⚠️ الحد الأقصى الآمن: 40 MB\n\nالحلول:\n• استخدم فيديو أقصر (10-20 ثانية)\n• صوّر بدقة أقل (480p بدلاً من 1080p)\n• قسّم الفيديو إلى أجزاء أصغر`);
+                        }
+                        throw error;
+                    }
 
                     const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
 
@@ -891,7 +949,12 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                 const errorText = error?.message || String(error);
 
-                if (errorText.includes('timeout') || errorText.includes('timed out')) {
+                if (errorText.includes('Invalid string length')) {
+                    errorMessage = `❌ الفيديو كبير جداً للحفظ!\n\n🔍 المشكلة: تجاوز حد الذاكرة للنصوص (Base64)\n\n💡 الحلول:\n• استخدم فيديو أقصر (15-30 ثانية)\n• صوّر بدقة أقل (480p أو 360p)\n• قسّم الفيديو لأجزاء أصغر\n• فعّل "ضغط عالي" قبل الرفع`;
+                } else if (errorText.includes('كبير جداً')) {
+                    // رسالة مخصصة من الفحوصات السابقة
+                    errorMessage = errorText;
+                } else if (errorText.includes('timeout') || errorText.includes('timed out')) {
                     errorMessage = `الفيديو "${fileToProcess.name}" يستغرق وقتاً طويلاً للمعالجة. جرب فيديو أصغر أو أقصر (أقل من 30 ثانية).`;
                 } else if (errorText.includes('QuotaExceeded') || errorText.includes('quota') || errorText.includes('storage')) {
                     errorMessage = 'مساحة التخزين ممتلئة! احذف بعض الفيديوهات أو الصور القديمة.';
@@ -905,7 +968,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     errorMessage = 'مشكلة في الاتصال بالإنترنت. تحقق من الاتصال وحاول مرة أخرى.';
                 } else {
                     // إضافة تفاصيل الخطأ للمستخدم
-                    errorMessage = `حدث خطأ: ${errorText.substring(0, 100)}`;
+                    errorMessage = `حدث خطأ: ${errorText.substring(0, 150)}`;
                 }
 
                 setFormError(errorMessage);
@@ -1160,10 +1223,16 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
             let errorMessage = 'حدث خطأ أثناء الحفظ.';
 
-            if (isQuotaExceededError(error)) {
+            const errorText = error?.message || String(error);
+
+            if (errorText.includes('Invalid string length')) {
+                errorMessage = '❌ البيانات كبيرة جداً للحفظ!\n\n🔍 المشكلة: تجاوز حد الذاكرة\n\n💡 الحلول الفورية:\n• احذف بعض الفيديوهات من هذه اليومية\n• احذف بعض الصور عالية الدقة\n• استخدم "ضغط عالي" للفيديوهات';
+            } else if (isQuotaExceededError(error)) {
                 errorMessage = '⚠️ مساحة التخزين ممتلئة!\n\nالحلول المتاحة:\n• احذف بعض الفيديوهات القديمة\n• احذف رحلات قديمة\n• استخدم ضغط فيديو أعلى (480p)\n• صدّر الرحلات وامسحها';
-            } else if (error?.message) {
-                errorMessage = `خطأ: ${error.message}`;
+            } else if (errorText.includes('كبير جداً')) {
+                errorMessage = errorText;
+            } else if (errorText) {
+                errorMessage = `خطأ: ${errorText.substring(0, 200)}`;
             }
 
             setFormError(errorMessage);
