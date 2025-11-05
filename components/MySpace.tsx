@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
@@ -15,7 +13,7 @@ import {
     User, Plus, ArrowRight, Trash2, Edit, Download, Sparkles, ChevronsRight,
     Camera, Video, DollarSign, Mic, Image as ImageIcon, Video as VideoIcon, VolumeX,
     Receipt, Type, Save, X, MapPin, BookOpen, Share2, Loader2,
-    Library, Grid, Clapperboard, Filter, CheckSquare, XCircle, FileArchive
+    Library, Grid, Clapperboard, Filter, CheckSquare, XCircle, FileArchive, BookText
 } from 'lucide-react';
 
 interface ToolProps {
@@ -620,6 +618,8 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const [fullscreenMedia, setFullscreenMedia] = useState<{ type: 'image' | 'video'; data: string; mimeType?: string; } | null>(null);
     const [videoObjectUrl, setVideoObjectUrl] = useState<string | null>(null);
     const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
+    const [isStoryMode, setIsStoryMode] = useState(false);
+    const [enhancingPhotoId, setEnhancingPhotoId] = useState<string | null>(null);
 
     // Media processing queue state
     const [mediaQueue, setMediaQueue] = useState<{ file: File; totalInBatch: number }[]>([]);
@@ -795,6 +795,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 title: currentEntry.title || `يوميات ${currentEntry.date}`,
                 notes: result
             });
+            setIsStoryMode(true);
         }
         setIsProcessing(false);
     };
@@ -934,6 +935,30 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
     const handleDeletePhoto = (photoId: string) => {
         updateEntry({ photos: currentEntry.photos.filter(p => p.id !== photoId) });
+    };
+
+    const handleEnhancePhoto = async (photoId: string) => {
+        const photoToEnhance = currentEntry.photos.find(p => p.id === photoId);
+        if (!photoToEnhance) return;
+    
+        setEnhancingPhotoId(photoId);
+        setFormError(null);
+        try {
+            const enhancedBase64 = await geminiService.enhancePhoto(photoToEnhance.base64);
+            if (enhancedBase64) {
+                const thumbnail = await generateThumbnail(enhancedBase64);
+                const updatedPhoto = { ...photoToEnhance, base64: enhancedBase64, thumbnailBase64: thumbnail };
+                updateEntry({
+                    photos: currentEntry.photos.map(p => p.id === photoId ? updatedPhoto : p)
+                });
+            } else {
+                throw new Error("لم يتم إرجاع صورة محسنة.");
+            }
+        } catch (err: any) {
+            setFormError(err.message || "فشل تحسين الصورة.");
+        } finally {
+            setEnhancingPhotoId(null);
+        }
     };
     
     const handleMuteVideo = async (videoId: string) => {
@@ -1095,16 +1120,31 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 <div className="w-10"></div>
             </div>
             
-            <input type="date" value={currentEntry.date} onChange={e => updateEntry({ date: e.target.value })} min={trip.startDate} max={trip.endDate} className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
-            <input type="text" value={currentEntry.title} onChange={e => updateEntry({ title: e.target.value })} placeholder="عنوان اليوم (مثال: يوم في الجبال)" className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+             {isStoryMode ? (
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-4 animate-fade-in">
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-2xl font-bold text-primary dark:text-primary-light">{currentEntry.title}</h3>
+                        <button onClick={() => setIsStoryMode(false)} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-gray-600 bg-gray-200 dark:bg-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600">
+                           <Edit size={16}/> <span>تعديل</span>
+                        </button>
+                    </div>
+                    <div className="text-gray-700 dark:text-gray-200 text-lg leading-relaxed whitespace-pre-wrap font-sans">
+                        {currentEntry.notes}
+                    </div>
+                </div>
+            ) : (
+                <>
+                    <input type="date" value={currentEntry.date} onChange={e => updateEntry({ date: e.target.value })} min={trip.startDate} max={trip.endDate} className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+                    <input type="text" value={currentEntry.title} onChange={e => updateEntry({ title: e.target.value })} placeholder="عنوان اليوم (مثال: يوم في الجبال)" className="w-full p-3 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600" />
+                    <div className="relative">
+                        <textarea value={currentEntry.notes} onChange={e => updateEntry({ notes: e.target.value })} placeholder="اكتب ملاحظاتك هنا..." rows={currentEntry.notes ? 8 : 4} className="w-full p-3 pl-12 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600"></textarea>
+                        <AudioRecorder onRecordingComplete={handleNoteFromAudio} className="absolute bottom-2 left-2"/>
+                    </div>
+                </>
+            )}
 
-            <div className="relative">
-                <textarea value={currentEntry.notes} onChange={e => updateEntry({ notes: e.target.value })} placeholder="اكتب ملاحظاتك هنا..." rows={currentEntry.notes ? 8 : 4} className="w-full p-3 pl-12 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600"></textarea>
-                <AudioRecorder onRecordingComplete={handleNoteFromAudio} className="absolute bottom-2 left-2"/>
-            </div>
-
-            <button onClick={handleSummarizeEntry} disabled={isProcessing || isProcessingMedia || currentEntry.photos.length === 0} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
-                <Sparkles size={20}/><span>لخص لي يومي بالذكاء الاصطناعي</span>
+            <button onClick={handleSummarizeEntry} disabled={isProcessing || isProcessingMedia || (currentEntry.notes.trim() === '' && currentEntry.photos.length === 0 && currentEntry.videos.length === 0)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+                <Sparkles size={20}/><span>{isStoryMode ? 'أعد كتابة القصة' : 'لخص لي يومي بالذكاء الاصطناعي'}</span>
             </button>
             
              {isProcessingMedia && (
@@ -1115,9 +1155,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
             )}
 
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
-                <div className="flex items-center gap-3">
-                    <h3 className="font-bold">الصور والفيديوهات</h3>
-                </div>
+                <h3 className="font-bold">الصور والفيديوهات</h3>
                 <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1132,7 +1170,15 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                             return (
                                 <div key={p.id} className="relative w-24 h-24 flex-shrink-0 group">
                                     <img src={src} alt="صورة يوميات" className="w-full h-full object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setFullscreenMedia({ type: 'image', data: fullSrc })} loading="lazy" />
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }} className="absolute top-1 right-1 bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors z-10" aria-label="حذف الصورة"><X size={14} /></button>
+                                     {enhancingPhotoId === p.id && (
+                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg z-20">
+                                            <Loader2 className="animate-spin text-white" size={28} />
+                                        </div>
+                                    )}
+                                    <div className="absolute top-1 right-1 flex gap-1 z-10">
+                                        <button onClick={(e) => { e.stopPropagation(); handleEnhancePhoto(p.id); }} className="bg-yellow-500/80 text-white rounded-full p-1 hover:bg-yellow-500 transition-colors" aria-label="تحسين الصورة"><Sparkles size={14} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(p.id); }} className="bg-red-600/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors" aria-label="حذف الصورة"><X size={14} /></button>
+                                    </div>
                                     {p.lat && p.lon && (<a href={`https://www.google.com/maps?q=${p.lat},${p.lon}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1.5 left-1.5 z-10 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" aria-label="عرض الموقع على الخريطة"><MapPin size={16} /></a>)}
                                 </div>
                             );
