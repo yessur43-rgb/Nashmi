@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -12,13 +11,24 @@ import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Loade
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-export type CapturedMedia = {
-    type: 'photo' | 'video';
+export type CapturedPhoto = {
+    type: 'photo';
     objectUrl: string;
     base64: string;
     blob: Blob;
     mimeType: string;
 };
+
+export type CapturedVideo = {
+    type: 'video';
+    objectUrl: string;
+    base64?: string;
+    blob: Blob;
+    mimeType: string;
+};
+
+export type CapturedMedia = CapturedPhoto | CapturedVideo;
+
 
 interface CaptureScreenProps {
   onSelectTool: (tool: Tool, initialState?: any) => void;
@@ -93,10 +103,11 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         
         if (file.type.startsWith('image/')) {
             const base64 = await compressImageAndConvertToBase64(file);
-            setCapturedMedia({ type: 'photo', objectUrl, base64, blob: file, mimeType: 'image/jpeg' });
+            const photo: CapturedPhoto = { type: 'photo', objectUrl, base64, blob: file, mimeType: 'image/jpeg' };
+            setCapturedMedia(photo);
         } else if (file.type.startsWith('video/')) {
-            const base64 = await blobToBase64(file);
-            setCapturedMedia({ type: 'video', objectUrl, base64, blob: file, mimeType: file.type });
+            const video: CapturedVideo = { type: 'video', objectUrl, blob: file, mimeType: file.type };
+            setCapturedMedia(video);
         }
         setViewMode('preview');
     } catch (err) {
@@ -137,8 +148,8 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                 entry.photos.push(newPhoto);
                 if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
             }
-        } else if (capturedMedia.type === 'video' && capturedMedia.blob) {
-            let finalBase64 = capturedMedia.base64;
+        } else if (capturedMedia.type === 'video') {
+            let finalBase64 = capturedMedia.base64 || await blobToBase64(capturedMedia.blob);
             let finalMimeType = capturedMedia.mimeType;
             if (shouldMuteVideo) {
                 const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
@@ -176,12 +187,13 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         // Clean up old object URL
         URL.revokeObjectURL(capturedMedia.objectUrl);
 
-        setCapturedMedia({
+        const updatedPhoto: CapturedPhoto = {
             ...capturedMedia,
             base64: newBase64,
             blob: newBlob,
             objectUrl: newObjectUrl
-        });
+        };
+        setCapturedMedia(updatedPhoto);
     }
     setViewMode('preview');
   };
