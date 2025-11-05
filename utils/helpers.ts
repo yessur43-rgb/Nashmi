@@ -259,6 +259,44 @@ export const getSupportedVideoMimeType = () => {
     return {};
 };
 
+export const isQuotaExceededError = (error: unknown): boolean => {
+    if (!error) return false;
+
+    if (error instanceof DOMException) {
+        if (error.name === 'QuotaExceededError') {
+            return true;
+        }
+        if (error.name === 'UnknownError' && /quota|storage|disk/i.test(error.message)) {
+            return true;
+        }
+        if (typeof (error as any).code === 'number' && (error as any).code === 22) {
+            return true;
+        }
+    }
+
+    if (typeof error === 'object' && error !== null) {
+        const name = (error as any).name as string | undefined;
+        const code = (error as any).code as number | undefined;
+        const message = (error as any).message as string | undefined;
+
+        if (name === 'QuotaExceededError') {
+            return true;
+        }
+        if (typeof code === 'number' && code === 22) {
+            return true;
+        }
+        if (message && /quota|storage|disk/i.test(message)) {
+            return true;
+        }
+    }
+
+    if (typeof error === 'string' && /quota|storage|disk/i.test(error)) {
+        return true;
+    }
+
+    return false;
+};
+
 export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<{ blob: Blob, wasTrimmed: boolean }> => {
   return new Promise((resolve, reject) => {
     let timer: number | null = null;

@@ -4,7 +4,7 @@ import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAn
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 // FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString, isQuotaExceededError } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -337,14 +337,28 @@ const TripAndStoryList: React.FC<{
 };
 
 
-const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'>) => void; onCancel: () => void;}> = ({ onSave, onCancel }) => {
+const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'>) => Promise<void>; onCancel: () => void;}> = ({ onSave, onCancel }) => {
     const [name, setName] = useState('');
     const [startDate, setStartDate] = useState(getLocalDateString());
     const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!name || !startDate) { setError("يرجى ملء جميع الحقول."); return; }
-        setError(''); onSave({ name, startDate });
+        setError('');
+        setIsSubmitting(true);
+        try {
+            await onSave({ name, startDate });
+        } catch (err) {
+            console.error('Failed to save trip', err);
+            if (isQuotaExceededError(err)) {
+                setError('نفدت مساحة التخزين المحلية. احذف بعض الرحلات أو الوسائط وحاول مرة أخرى.');
+            } else {
+                setError('حدث خطأ أثناء حفظ الرحلة. حاول مرة أخرى.');
+            }
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -359,20 +373,22 @@ const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'
                 </div>
             </div>
             <div className="flex gap-4">
-                <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
-                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold">بدء الرحلة</button>
+                <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold" disabled={isSubmitting}>إلغاء</button>
+                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold disabled:opacity-50" disabled={isSubmitting}>
+                    {isSubmitting ? 'جاري الحفظ...' : 'بدء الرحلة'}
+                </button>
             </div>
         </div>
     );
 };
 
 const TripDetails: React.FC<{
-    trip: Trip; 
-    onBack: () => void; 
-    onEditEntry: (entry: JournalEntry) => void; 
-    onAddEntry: () => void; 
+    trip: Trip;
+    onBack: () => void;
+    onEditEntry: (entry: JournalEntry) => void;
+    onAddEntry: () => void;
     onDeleteTrip: (tripId: string) => void;
-    onUpdateTrip: (updatedTrip: Trip) => void;
+    onUpdateTrip: (updatedTrip: Trip) => Promise<void>;
     onViewStory: () => void;
 }> = ({ trip, onBack, onAddEntry, onEditEntry, onDeleteTrip, onUpdateTrip, onViewStory }) => {
     const [summary, setSummary] = useState<string | null>(null);
@@ -382,6 +398,27 @@ const TripDetails: React.FC<{
     const nameInputRef = useRef<HTMLInputElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const ENTRIES_PER_PAGE = 10;
+    const [updateError, setUpdateError] = useState<string | null>(null);
+    const [isSavingTrip, setIsSavingTrip] = useState(false);
+
+    const applyTripUpdate = useCallback(async (updatedTrip: Trip) => {
+        setIsSavingTrip(true);
+        try {
+            await onUpdateTrip(updatedTrip);
+            setUpdateError(null);
+            return true;
+        } catch (err) {
+            console.error('Failed to update trip', err);
+            if (isQuotaExceededError(err)) {
+                setUpdateError('نفدت مساحة التخزين المحلية. احذف بعض الوسائط أو الرحلات ثم حاول مرة أخرى.');
+            } else {
+                setUpdateError('تعذر حفظ التغييرات. حاول مرة أخرى.');
+            }
+            return false;
+        } finally {
+            setIsSavingTrip(false);
+        }
+    }, [onUpdateTrip]);
     
     useEffect(() => {
         const today = getLocalDateString();
@@ -398,12 +435,12 @@ const TripDetails: React.FC<{
                 expenses: [],
             };
             const updatedTrip = { ...trip, entries: [newEntry, ...trip.entries] };
-            onUpdateTrip(updatedTrip);
+            void applyTripUpdate(updatedTrip);
         }
-    }, [trip, onUpdateTrip]);
+    }, [trip, applyTripUpdate]);
 
-    const sortedEntries = useMemo(() => 
-        trip.entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    const sortedEntries = useMemo(() =>
+        [...trip.entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [trip.entries]);
 
     const displayedEntries = useMemo(() =>
@@ -417,17 +454,25 @@ const TripDetails: React.FC<{
         }
     }, [isEditingName]);
 
-    const handleSaveName = () => {
-        if (editedName.trim() && editedName.trim() !== trip.name) {
-            onUpdateTrip({ ...trip, name: editedName.trim() });
+    const handleSaveName = async () => {
+        const trimmed = editedName.trim();
+        if (!trimmed) {
+            setIsEditingName(false);
+            return;
+        }
+        if (trimmed !== trip.name) {
+            const success = await applyTripUpdate({ ...trip, name: trimmed });
+            if (!success) {
+                return;
+            }
         }
         setIsEditingName(false);
     };
-    
-    const handleEndTrip = () => {
+
+    const handleEndTrip = async () => {
         if (window.confirm("هل أنت متأكد من إنهاء هذه الرحلة؟ لا يمكنك إضافة يوميات جديدة بعد إنهائها.")) {
             const today = getLocalDateString();
-            onUpdateTrip({ ...trip, endDate: today });
+            await applyTripUpdate({ ...trip, endDate: today });
         }
     };
 
@@ -478,23 +523,30 @@ const TripDetails: React.FC<{
                 });
 
                 const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
-                onUpdateTrip(updatedTrip);
-                onViewStory();
+                const success = await applyTripUpdate(updatedTrip);
+                if (success) {
+                    onViewStory();
+                }
             }
         } finally {
             setIsProcessing(false);
         }
     };
 
-    const handleDeleteEntry = (entryId: string) => {
+    const handleDeleteEntry = async (entryId: string) => {
         if (window.confirm("هل أنت متأكد من حذف هذه اليوميات؟")) {
             const updatedEntries = trip.entries.filter(e => e.id !== entryId);
-            onUpdateTrip({ ...trip, entries: updatedEntries });
+            await applyTripUpdate({ ...trip, entries: updatedEntries });
         }
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-6 animate-fade-in">
+        <div className="relative p-4 md:p-6 space-y-6 animate-fade-in">
+            {isSavingTrip && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-black/10 dark:bg-black/40">
+                    <LoadingSpinner message="جاري الحفظ..." />
+                </div>
+            )}
             <div className="flex items-center justify-between gap-2">
                 <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
                 {isEditingName ? (
@@ -511,10 +563,10 @@ const TripDetails: React.FC<{
                     <h2 className="text-2xl font-bold text-center flex-grow truncate px-2" onClick={() => setIsEditingName(true)}>{trip.name}</h2>
                 )}
                 <div className="flex items-center">
-                    <button onClick={() => isEditingName ? handleSaveName() : setIsEditingName(true)} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <button onClick={() => isEditingName ? handleSaveName() : setIsEditingName(true)} disabled={isSavingTrip} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
                         {isEditingName ? <Save size={20} /> : <Edit size={20} />}
                     </button>
-                    <button onClick={() => onDeleteTrip(trip.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><Trash2 size={20} /></button>
+                    <button onClick={() => onDeleteTrip(trip.id)} disabled={isSavingTrip} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 disabled:opacity-50"><Trash2 size={20} /></button>
                 </div>
             </div>
              {grandTotal > 0 && (
@@ -523,26 +575,35 @@ const TripDetails: React.FC<{
                 </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+                <button onClick={handleSummarize} disabled={isProcessing || isSavingTrip || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
                 {trip.exportedStoryHtml ? (
-                    <button onClick={onViewStory} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg font-semibold shadow-md hover:bg-green-600">
+                    <button onClick={onViewStory} disabled={isSavingTrip} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg font-semibold shadow-md hover:bg-green-600 disabled:opacity-50">
                         <BookOpen size={20} />
                         <span>عرض القصة</span>
                     </button>
                 ) : (
-                    <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
+                    <button onClick={handleGenerateStory} disabled={isProcessing || isSavingTrip} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
                         <Download size={20}/><span>إنشاء قصة</span>
                     </button>
                 )}
             </div>
 
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
+            {updateError && (
+                <div className="p-3 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-200">
+                    {updateError}
+                </div>
+            )}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
             
             {isOngoing && (
-                 <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
+                 <button
+                    onClick={onAddEntry}
+                    disabled={isSavingTrip}
+                    className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark disabled:opacity-50"
+                >
                     <Plus /><span>إضافة يوميات جديدة</span>
                 </button>
             )}
@@ -563,10 +624,10 @@ const TripDetails: React.FC<{
 
                      return (
                          <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center gap-3">
-                             <button onClick={() => onEditEntry(entry)} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0" aria-label="تعديل اليومية">
+                             <button onClick={() => !isSavingTrip && onEditEntry(entry)} disabled={isSavingTrip} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0 disabled:opacity-50" aria-label="تعديل اليومية">
                                  <Edit size={20} />
                              </button>
-                             <div className="flex-grow min-w-0 cursor-pointer" onClick={() => onEditEntry(entry)}>
+                             <div className={`flex-grow min-w-0 cursor-pointer ${isSavingTrip ? 'pointer-events-none opacity-60' : ''}`} onClick={() => !isSavingTrip && onEditEntry(entry)}>
                                  <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title || `يوميات ${entry.date}`}</h3>
                                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
                                  <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{snippet}</p>
@@ -577,7 +638,7 @@ const TripDetails: React.FC<{
                                     </div>
                                 )}
                              </div>
-                             <button onClick={() => handleDeleteEntry(entry.id)} className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0" aria-label="حذف اليومية">
+                             <button onClick={() => handleDeleteEntry(entry.id)} disabled={isSavingTrip} className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0 disabled:opacity-50" aria-label="حذف اليومية">
                                  <Trash2 size={20} />
                              </button>
                          </div>
@@ -596,9 +657,10 @@ const TripDetails: React.FC<{
              </div>
              {isOngoing && (
                 <div className="text-center mt-6">
-                    <button 
+                    <button
                         onClick={handleEndTrip}
-                        className="flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded-lg font-semibold hover:bg-red-200 dark:hover:bg-red-900"
+                        disabled={isSavingTrip}
+                        className="flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded-lg font-semibold hover:bg-red-200 dark:hover:bg-red-900 disabled:opacity-50"
                     >
                         <CheckSquare size={18} />
                         <span>إنهاء الرحلة</span>
@@ -609,7 +671,7 @@ const TripDetails: React.FC<{
     );
 };
 
-const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
+const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => Promise<void>; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: getLocalDateString(), title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
@@ -1001,10 +1063,14 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         try {
             const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
             const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
-            onSave({ ...trip, entries: updatedEntries });
+            await onSave({ ...trip, entries: updatedEntries });
         } catch (error) {
             console.error("Error saving entry:", error);
-            setFormError("حدث خطأ أثناء الحفظ.");
+            if (isQuotaExceededError(error)) {
+                setFormError('نفدت مساحة التخزين المحلية. احذف بعض الوسائط أو الرحلات ثم حاول مرة أخرى.');
+            } else {
+                setFormError("حدث خطأ أثناء الحفظ.");
+            }
         } finally {
             setIsProcessing(false);
         }
