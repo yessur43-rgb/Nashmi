@@ -741,10 +741,30 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         const files: File[] = Array.from(e.target.files);
         if (files.length === 0) return;
 
+        // فحص حجم الفيديوهات قبل المعالجة
+        const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB
+        const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
+
+        for (const file of files) {
+            if (file.type.startsWith('video/')) {
+                if (file.size > MAX_VIDEO_SIZE) {
+                    setFormError(`الفيديو "${file.name}" كبير جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 100 MB`);
+                    e.target.value = '';
+                    return;
+                }
+            } else if (file.type.startsWith('image/')) {
+                if (file.size > MAX_IMAGE_SIZE) {
+                    setFormError(`الصورة "${file.name}" كبيرة جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 20 MB`);
+                    e.target.value = '';
+                    return;
+                }
+            }
+        }
+
         setFormError(null);
         const newQueueItems = files.map(file => ({ file, totalInBatch: files.length }));
         setMediaQueue(prev => [...prev, ...newQueueItems]);
-        
+
         // Reset file input to allow selecting the same file again
         e.target.value = '';
     };
@@ -789,6 +809,12 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         updateEntry({ photos: [...currentEntry.photos, newPhoto], notes: newNotes.trim() });
                     }
                 } else if (fileToProcess.type.startsWith('video/')) {
+                    // فحص دعم المتصفح لمعالجة الفيديو
+                    const canvas = document.createElement('canvas');
+                    if (typeof (canvas as any).captureStream !== 'function') {
+                        throw new Error('متصفحك لا يدعم معالجة الفيديو. استخدم Google Chrome أو Microsoft Edge.');
+                    }
+
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
@@ -824,12 +850,35 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
                     updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error processing file:", fileToProcess.name, error);
-                setFormError(`حدث خطأ أثناء معالجة الملف: ${fileToProcess.name}`);
+
+                // تحديد نوع الخطأ وعرض رسالة واضحة
+                let errorMessage = `حدث خطأ أثناء معالجة "${fileToProcess.name}"`;
+
+                const errorText = error?.message || String(error);
+
+                if (errorText.includes('timeout') || errorText.includes('timed out')) {
+                    errorMessage = `الفيديو "${fileToProcess.name}" يستغرق وقتاً طويلاً للمعالجة. جرب فيديو أصغر أو أقصر (أقل من 30 ثانية).`;
+                } else if (errorText.includes('QuotaExceeded') || errorText.includes('quota') || errorText.includes('storage')) {
+                    errorMessage = 'مساحة التخزين ممتلئة! احذف بعض الفيديوهات أو الصور القديمة.';
+                } else if (errorText.includes('not supported') || errorText.includes('captureStream')) {
+                    errorMessage = 'متصفحك لا يدعم معالجة الفيديو بشكل كامل. استخدم Google Chrome أو Microsoft Edge للحصول على أفضل تجربة.';
+                } else if (errorText.includes('codec') || errorText.includes('format')) {
+                    errorMessage = `تنسيق الفيديو "${fileToProcess.name}" غير مدعوم. جرب تحويله إلى MP4 أو WebM.`;
+                } else if (errorText.includes('dimensions') || errorText.includes('resolution')) {
+                    errorMessage = `دقة الفيديو "${fileToProcess.name}" عالية جداً. جرب فيديو بدقة أقل (720p أو أقل).`;
+                } else if (errorText.includes('Failed to fetch') || errorText.includes('network')) {
+                    errorMessage = 'مشكلة في الاتصال بالإنترنت. تحقق من الاتصال وحاول مرة أخرى.';
+                } else {
+                    // إضافة تفاصيل الخطأ للمستخدم
+                    errorMessage = `حدث خطأ: ${errorText.substring(0, 100)}`;
+                }
+
+                setFormError(errorMessage);
             } finally {
                 setMediaQueue(prev => prev.slice(1));
-                setIsProcessingMedia(false); 
+                setIsProcessingMedia(false);
             }
         };
 

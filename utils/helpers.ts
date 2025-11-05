@@ -96,7 +96,7 @@ export const generateThumbnail = (base64: string, maxDimension: number = 200): P
 
 export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const TIMEOUT_MS = 10000;
+    const TIMEOUT_MS = 30000; // زيادة من 10 إلى 30 ثانية لدعم فيديوهات أكبر
     let timer: number | null = null;
     
     const video = document.createElement('video');
@@ -300,7 +300,7 @@ export const isQuotaExceededError = (error: unknown): boolean => {
 export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<{ blob: Blob, wasTrimmed: boolean }> => {
   return new Promise((resolve, reject) => {
     let timer: number | null = null;
-    const TIMEOUT_MS = 20000; // 20 seconds for loading and trimming.
+    const TIMEOUT_MS = 60000; // زيادة من 20 إلى 60 ثانية لدعم فيديوهات أكبر
 
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
