@@ -176,14 +176,19 @@ const MySpace: React.FC<ToolProps> = ({ location }) => {
                 onViewStory={() => setCurrentView('storyViewer')}
             />;
         case 'entryForm':
-            return selectedTrip && <JournalEntryForm 
-                trip={selectedTrip} 
-                entry={selectedEntry} 
+            return selectedTrip && <JournalEntryForm
+                trip={selectedTrip}
+                entry={selectedEntry}
                 onSave={async (updatedTrip) => {
-                    await handleUpdateTrip(updatedTrip);
-                    setCurrentView('tripDetails');
-                    setSelectedEntry(null);
-                }} 
+                    try {
+                        await handleUpdateTrip(updatedTrip);
+                        setCurrentView('tripDetails');
+                        setSelectedEntry(null);
+                    } catch (error) {
+                        // الخطأ سيتم التعامل معه داخل JournalEntryForm
+                        throw error;
+                    }
+                }}
                 onCancel={() => { setCurrentView('tripDetails'); setSelectedEntry(null); }}
                 location={location}
             />;
@@ -1140,14 +1145,31 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         try {
             const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
             const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
+
+            // حساب حجم البيانات التقريبي
+            const dataSize = JSON.stringify({ ...trip, entries: updatedEntries }).length;
+            const dataSizeMB = (dataSize / 1024 / 1024).toFixed(2);
+
+            console.log(`محاولة حفظ اليومية... الحجم التقريبي: ${dataSizeMB} MB`);
+
             await onSave({ ...trip, entries: updatedEntries });
-        } catch (error) {
+
+            console.log('تم الحفظ بنجاح!');
+        } catch (error: any) {
             console.error("Error saving entry:", error);
+
+            let errorMessage = 'حدث خطأ أثناء الحفظ.';
+
             if (isQuotaExceededError(error)) {
-                setFormError('نفدت مساحة التخزين المحلية. احذف بعض الوسائط أو الرحلات ثم حاول مرة أخرى.');
-            } else {
-                setFormError("حدث خطأ أثناء الحفظ.");
+                errorMessage = '⚠️ مساحة التخزين ممتلئة!\n\nالحلول المتاحة:\n• احذف بعض الفيديوهات القديمة\n• احذف رحلات قديمة\n• استخدم ضغط فيديو أعلى (480p)\n• صدّر الرحلات وامسحها';
+            } else if (error?.message) {
+                errorMessage = `خطأ: ${error.message}`;
             }
+
+            setFormError(errorMessage);
+
+            // منع الرجوع للصفحة السابقة عند حدوث خطأ
+            throw error;
         } finally {
             setIsProcessing(false);
         }
@@ -1254,8 +1276,18 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                 </div>
             )}
             {isProcessing && <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center rounded-lg"><LoadingSpinner message="جاري الحفظ..."/></div>}
-            
-            {formError && <div className="p-4 my-2 bg-red-100 text-red-700 rounded-lg text-center">{formError}</div>}
+
+            {formError && (
+                <div className="p-4 my-2 bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-lg border-2 border-red-300 dark:border-red-700">
+                    <div className="flex items-start gap-3">
+                        <XCircle size={24} className="flex-shrink-0 mt-0.5" />
+                        <div className="flex-grow">
+                            <h4 className="font-bold text-base mb-1">خطأ في الحفظ</h4>
+                            <p className="whitespace-pre-line text-sm">{formError}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="flex items-center justify-between">
                 <button onClick={onCancel} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
@@ -1464,7 +1496,29 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     ))}
                 </ul>
             </div>
-            
+
+            {/* عرض حجم البيانات الحالي */}
+            {(currentEntry.photos.length > 0 || currentEntry.videos.length > 0) && (
+                <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg">
+                    <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700 dark:text-gray-300">حجم البيانات:</span>
+                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {(() => {
+                                const size = JSON.stringify(currentEntry).length;
+                                const sizeMB = (size / 1024 / 1024).toFixed(2);
+                                const sizeKB = (size / 1024).toFixed(0);
+                                return size > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+                            })()}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        <span>{currentEntry.photos.length} صورة</span>
+                        <span>•</span>
+                        <span>{currentEntry.videos.length} فيديو</span>
+                    </div>
+                </div>
+            )}
+
             <div className="flex gap-4 pt-4">
                 <button onClick={onCancel} className="w-full p-4 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
                 <button onClick={handleSave} className="w-full p-4 bg-primary text-white rounded-lg font-semibold" disabled={isProcessing || isProcessingMedia}>حفظ اليومية</button>
