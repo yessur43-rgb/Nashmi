@@ -4,7 +4,7 @@ import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAn
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 // FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString, isQuotaExceededError } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString, isQuotaExceededError, compressVideo } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -688,6 +688,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     const [isProcessingMedia, setIsProcessingMedia] = useState(false);
     const [processingStatus, setProcessingStatus] = useState('');
 
+    // Video compression settings
+    const [enableVideoCompression, setEnableVideoCompression] = useState(true);
+    const [compressionQuality, setCompressionQuality] = useState<'low' | 'medium' | 'high'>('medium');
 
     // Expense Modal State
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -815,36 +818,61 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         throw new Error('متصفحك لا يدعم معالجة الفيديو. استخدم Google Chrome أو Microsoft Edge.');
                     }
 
+                    const originalVideoSize = fileToProcess.size;
+
+                    // خطوة 1: قص الفيديو إذا كان أطول من 60 ثانية
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
-                    const { blob: processedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+                    const { blob: trimmedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
-                    setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    // خطوة 2: ضغط الفيديو إذا كان مفعلاً
+                    let finalVideoBlob = trimmedVideoBlob;
+                    let compressionInfo = '';
+
+                    if (enableVideoCompression && trimmedVideoBlob.size > 10 * 1024 * 1024) { // ضغط إذا أكبر من 10 MB
+                        setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch} (${(trimmedVideoBlob.size / 1024 / 1024).toFixed(1)} MB)...`);
+                        await yieldToMain();
+
+                        try {
+                            const compressionOptions = {
+                                maxWidth: compressionQuality === 'high' ? 1280 : compressionQuality === 'medium' ? 1024 : 854,
+                                maxHeight: compressionQuality === 'high' ? 720 : compressionQuality === 'medium' ? 576 : 480,
+                                quality: compressionQuality === 'high' ? 0.8 : compressionQuality === 'medium' ? 0.7 : 0.6
+                            };
+
+                            const { blob: compressedBlob, originalSize, compressedSize, compressionRatio } = await compressVideo(trimmedVideoBlob, compressionOptions);
+                            finalVideoBlob = compressedBlob;
+
+                            compressionInfo = `تم ضغط الفيديو من ${(originalSize / 1024 / 1024).toFixed(1)} MB إلى ${(compressedSize / 1024 / 1024).toFixed(1)} MB (وفرت ${compressionRatio.toFixed(0)}%)`;
+                            console.log(compressionInfo);
+
+                            // عرض معلومات الضغط للمستخدم
+                            if (compressionRatio > 10) {
+                                setProcessingStatus(`${compressionInfo}`);
+                                await new Promise(resolve => setTimeout(resolve, 2000)); // عرض لمدة ثانيتين
+                            }
+                        } catch (compressionError) {
+                            console.warn("فشل ضغط الفيديو، سيتم حفظه بدون ضغط:", compressionError);
+                            // الاستمرار بدون ضغط
+                        }
+                    }
+
+                    // خطوة 3: توليد thumbnail
+                    setProcessingStatus(`إنشاء صورة مصغرة ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
-                    let base64 = await blobToBase64(processedVideoBlob);
-                    let mimeType = processedVideoBlob.type;
-                    
-                    await yieldToMain();
-                    const thumbnailBase64 = await generateVideoThumbnail(new File([processedVideoBlob], fileToProcess.name, { type: mimeType })).catch(e => {
+                    const thumbnailBase64 = await generateVideoThumbnail(new File([finalVideoBlob], fileToProcess.name, { type: finalVideoBlob.type })).catch(e => {
                         console.warn("Thumbnail generation failed, skipping:", e);
                         return undefined;
                     });
 
+                    // خطوة 4: تحويل إلى base64 وتحليل
+                    setProcessingStatus(`تحليل محتوى الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    await yieldToMain();
+                    let base64 = await blobToBase64(finalVideoBlob);
+                    let mimeType = finalVideoBlob.type;
+
                     const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
-                    
-                    if (!wasTrimmed) {
-                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
-                         await yieldToMain();
-                         try {
-                            const mutedVideo = await removeAudioFromVideo(base64, mimeType);
-                            base64 = mutedVideo.base64;
-                            mimeType = mutedVideo.mimeType;
-                        } catch (muteError) {
-                            console.error("Could not remove audio from video, storing original:", muteError);
-                            setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
-                        }
-                    }
 
                     const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
                     const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
@@ -1271,6 +1299,67 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
                 <h3 className="font-bold">الصور والفيديوهات</h3>
+
+                {/* خيارات ضغط الفيديو */}
+                <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                        <label className="text-sm font-semibold flex items-center gap-2">
+                            <Clapperboard size={16} />
+                            <span>ضغط الفيديو تلقائياً</span>
+                        </label>
+                        <button
+                            onClick={() => setEnableVideoCompression(!enableVideoCompression)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enableVideoCompression ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableVideoCompression ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+
+                    {enableVideoCompression && (
+                        <div className="space-y-1">
+                            <label className="text-xs text-gray-600 dark:text-gray-400">جودة الضغط:</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button
+                                    onClick={() => setCompressionQuality('low')}
+                                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-colors ${
+                                        compressionQuality === 'low'
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                >
+                                    ضغط عالي
+                                    <div className="text-[10px] opacity-80">480p</div>
+                                </button>
+                                <button
+                                    onClick={() => setCompressionQuality('medium')}
+                                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-colors ${
+                                        compressionQuality === 'medium'
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                >
+                                    متوسط
+                                    <div className="text-[10px] opacity-80">576p</div>
+                                </button>
+                                <button
+                                    onClick={() => setCompressionQuality('high')}
+                                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-colors ${
+                                        compressionQuality === 'high'
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                >
+                                    جودة عالية
+                                    <div className="text-[10px] opacity-80">720p</div>
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                                💡 يتم الضغط تلقائياً للفيديوهات أكبر من 10 MB
+                            </p>
+                        </div>
+                    )}
+                </div>
+
                 <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

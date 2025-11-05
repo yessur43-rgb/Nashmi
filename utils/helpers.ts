@@ -537,6 +537,175 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
     });
 };
 
+export interface VideoCompressionOptions {
+    maxWidth?: number;      // الحد الأقصى للعرض (default: 1280)
+    maxHeight?: number;     // الحد الأقصى للارتفاع (default: 720)
+    quality?: number;       // جودة الفيديو 0-1 (default: 0.7)
+    bitrate?: number;       // bitrate بالـ bps (optional)
+}
+
+/**
+ * ضغط الفيديو عن طريق تقليل الدقة وإعادة الترميز
+ */
+export const compressVideo = async (
+    videoBlob: Blob,
+    options: VideoCompressionOptions = {}
+): Promise<{ blob: Blob; originalSize: number; compressedSize: number; compressionRatio: number }> => {
+    return new Promise((resolve, reject) => {
+        const {
+            maxWidth = 1280,
+            maxHeight = 720,
+            quality = 0.7
+        } = options;
+
+        let timer: number | null = null;
+        const TIMEOUT_MS = 120000; // 2 دقيقة للضغط
+
+        const video = document.createElement('video');
+        const canvas = document.createElement('canvas');
+        video.style.display = 'none';
+        canvas.style.display = 'none';
+
+        let animationFrameId: number;
+        const originalSize = videoBlob.size;
+
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            if (video.src) URL.revokeObjectURL(video.src);
+            if (video.parentElement) video.parentElement.removeChild(video);
+            if (canvas.parentElement) canvas.parentElement.removeChild(canvas);
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        };
+
+        timer = window.setTimeout(() => {
+            cleanup();
+            reject(new Error(`انتهى وقت ضغط الفيديو بعد ${TIMEOUT_MS / 1000} ثانية.`));
+        }, TIMEOUT_MS);
+
+        try {
+            video.muted = true;
+            video.playsInline = true;
+
+            video.onloadedmetadata = () => {
+                try {
+                    // حساب الأبعاد الجديدة مع الحفاظ على نسبة العرض للارتفاع
+                    let newWidth = video.videoWidth;
+                    let newHeight = video.videoHeight;
+
+                    if (newWidth > maxWidth || newHeight > maxHeight) {
+                        const aspectRatio = newWidth / newHeight;
+
+                        if (newWidth > newHeight) {
+                            newWidth = Math.min(newWidth, maxWidth);
+                            newHeight = Math.round(newWidth / aspectRatio);
+                        } else {
+                            newHeight = Math.min(newHeight, maxHeight);
+                            newWidth = Math.round(newHeight * aspectRatio);
+                        }
+
+                        // تأكد من أن الأرقام زوجية (مطلوب لبعض codecs)
+                        newWidth = Math.floor(newWidth / 2) * 2;
+                        newHeight = Math.floor(newHeight / 2) * 2;
+                    }
+
+                    canvas.width = newWidth;
+                    canvas.height = newHeight;
+
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        cleanup();
+                        return reject(new Error('تعذر الحصول على سياق Canvas.'));
+                    }
+
+                    if (typeof (canvas as any).captureStream !== 'function') {
+                        cleanup();
+                        return reject(new Error('متصفحك لا يدعم ضغط الفيديو.'));
+                    }
+
+                    const stream = (canvas as any).captureStream(25); // 25 fps
+                    const options = getSupportedVideoMimeType();
+                    const finalMimeType = options.mimeType || 'video/webm';
+
+                    // حساب bitrate بناءً على الدقة والجودة
+                    const pixelCount = newWidth * newHeight;
+                    const baseBitrate = pixelCount * 0.1 * quality; // قاعدة تقريبية
+
+                    const recorderOptions: any = {
+                        ...options,
+                        videoBitsPerSecond: baseBitrate
+                    };
+
+                    const recorder = new MediaRecorder(stream, recorderOptions);
+                    const chunks: Blob[] = [];
+
+                    recorder.ondataavailable = e => chunks.push(e.data);
+
+                    recorder.onstop = () => {
+                        cleanup();
+                        const compressedBlob = new Blob(chunks, { type: finalMimeType });
+
+                        if (compressedBlob.size === 0) {
+                            return reject(new Error("الضغط أنتج ملف فيديو فارغ."));
+                        }
+
+                        const compressionRatio = ((originalSize - compressedBlob.size) / originalSize * 100);
+
+                        resolve({
+                            blob: compressedBlob,
+                            originalSize,
+                            compressedSize: compressedBlob.size,
+                            compressionRatio
+                        });
+                    };
+
+                    recorder.onerror = (e) => {
+                        cleanup();
+                        reject(new Error('حدث خطأ أثناء ضغط الفيديو.'));
+                    };
+
+                    const drawFrame = () => {
+                        if (!video.paused && !video.ended) {
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            animationFrameId = requestAnimationFrame(drawFrame);
+                        }
+                    };
+
+                    recorder.start();
+                    video.play().then(() => {
+                        drawFrame();
+                    }).catch(playError => {
+                        cleanup();
+                        reject(playError);
+                    });
+
+                    video.onended = () => {
+                        if (recorder.state === 'recording') {
+                            recorder.stop();
+                        }
+                    };
+
+                } catch (e) {
+                    cleanup();
+                    reject(e instanceof Error ? e : new Error(String(e)));
+                }
+            };
+
+            video.onerror = (e) => {
+                cleanup();
+                reject(new Error(`خطأ في تحميل الفيديو للضغط: ${(e.target as HTMLVideoElement)?.error?.message || 'خطأ غير معروف'}`));
+            };
+
+            video.src = URL.createObjectURL(videoBlob);
+            document.body.appendChild(video);
+            document.body.appendChild(canvas);
+
+        } catch (error: any) {
+            cleanup();
+            reject(error instanceof Error ? error : new Error(String(error)));
+        }
+    });
+};
+
 export const getLocalDateString = (date: Date = new Date()): string => {
   const year = date.getFullYear();
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
