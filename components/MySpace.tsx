@@ -1017,7 +1017,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                 <div className="flex items-center gap-4">
                     <AudioRecorder onRecordingComplete={handleAddExpenseFromAudioInModal} disabled={isProcessingExpense} />
-                    <input type="file" accept="image/*" ref={expenseReceiptInputRef} onChange={handleScanReceiptForModal} className="hidden" />
+                    <input type="file" accept="image/jpeg,image/png,image/webp" ref={expenseReceiptInputRef} onChange={handleScanReceiptForModal} className="hidden" />
                     <button onClick={() => expenseReceiptInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 p-3 bg-violet-500 text-white rounded-lg font-semibold shadow-md hover:bg-violet-600">
                         <Receipt size={20}/><span>امسح الفاتورة</span>
                     </button>
@@ -1063,7 +1063,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                 <div className="space-y-2">
                     <label className="text-sm text-gray-400">صور المصروف (اختياري)</label>
-                    <input type="file" accept="image/*" ref={expensePhotoInputRef} onChange={handleExpensePhotoUpload} className="hidden" />
+                    <input type="file" accept="image/jpeg,image/png,image/webp" ref={expensePhotoInputRef} onChange={handleExpensePhotoUpload} className="hidden" />
                     {expenseData.photo ? (
                         <div className="relative w-full h-32">
                            <img src={`data:image/jpeg;base64,${expenseData.photo.thumbnailBase64 || expenseData.photo.base64}`} alt="معاينة المصروف" className="w-full h-full object-cover rounded-lg" loading="lazy" />
@@ -1153,7 +1153,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
                 <h3 className="font-bold">الصور والفيديوهات</h3>
-                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
+                <input type="file" accept="image/jpeg,image/png,image/webp" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>

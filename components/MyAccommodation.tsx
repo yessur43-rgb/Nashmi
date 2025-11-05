@@ -125,7 +125,7 @@ const MyAccommodation: React.FC<MyAccommodationProps> = ({ location, locationErr
                 
                 <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     capture="environment"
                     ref={cameraInputRef}
                     onChange={handleFileChange}

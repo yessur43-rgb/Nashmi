@@ -135,7 +135,7 @@ const ImageInput: React.FC<ImageInputProps> = ({ onImageSelect, onBarcodeScan, d
       <div className={`grid grid-cols-1 ${gridColsClass} gap-3`}>
         <input
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           ref={fileInputRef}
           onChange={handleFileChange}
           className="hidden"
@@ -143,7 +143,7 @@ const ImageInput: React.FC<ImageInputProps> = ({ onImageSelect, onBarcodeScan, d
         />
         <input
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           capture="environment"
           ref={cameraInputRef}
           onChange={handleFileChange}

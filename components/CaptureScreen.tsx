@@ -281,7 +281,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
         {isAudioModalOpen && <QuickAudioModal onClose={() => setIsAudioModalOpen(false)} onAudioAnalyzed={handleAudioAnalyzed} />}
         
-        <input type="file" accept="image/*" capture="environment" ref={photoInputRef} onChange={handleMediaSelect} className="hidden" />
+        <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" ref={photoInputRef} onChange={handleMediaSelect} className="hidden" />
         <input type="file" accept="video/*" capture="environment" ref={videoInputRef} onChange={handleMediaSelect} className="hidden" />
 
         <header className="flex-shrink-0 p-4 flex justify-between items-center">
