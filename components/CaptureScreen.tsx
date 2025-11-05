@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
@@ -82,8 +84,26 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
   };
 
   const handleMediaSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const MAX_PHOTO_SIZE_MB = 20;
+    const MAX_VIDEO_SIZE_MB = 100;
+    const MAX_PHOTO_SIZE_BYTES = MAX_PHOTO_SIZE_MB * 1024 * 1024;
+    const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (file.type.startsWith('image/') && file.size > MAX_PHOTO_SIZE_BYTES) {
+        setError(`حجم الصورة يتجاوز الحد المسموح به (${MAX_PHOTO_SIZE_MB} ميجابايت).`);
+        event.target.value = ''; // Reset input
+        return;
+    }
+
+    if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_BYTES) {
+        setError(`حجم الفيديو يتجاوز الحد المسموح به (${MAX_VIDEO_SIZE_MB} ميجابايت).`);
+        event.target.value = ''; // Reset input
+        return;
+    }
+
 
     setIsProcessing(true);
     setError(null);
@@ -151,12 +171,12 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
         }
         await db.putTrip(trip);
+        handleDiscardMedia();
     } catch (error) {
         console.error("Error processing media:", error);
         setError(error instanceof Error ? error.message : 'حدث خطأ أثناء معالجة المحتوى.');
     } finally {
         setIsProcessing(false);
-        handleDiscardMedia();
     }
   };
   

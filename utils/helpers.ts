@@ -1,5 +1,4 @@
 
-
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -96,7 +95,7 @@ export const generateThumbnail = (base64: string, maxDimension: number = 200): P
 
 export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const TIMEOUT_MS = 30000; // زيادة من 10 إلى 30 ثانية لدعم فيديوهات أكبر
+    const TIMEOUT_MS = 30000;
     let timer: number | null = null;
     
     const video = document.createElement('video');
@@ -120,7 +119,7 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     };
 
     timer = window.setTimeout(() => {
-        onError(`Video thumbnail generation timed out after ${TIMEOUT_MS / 1000}s.`);
+        onError(`استغرق إنشاء الصورة المصغرة للفيديو وقتًا طويلاً جدًا (${TIMEOUT_MS / 1000} ثانية).`);
     }, TIMEOUT_MS);
     
     const onSeeked = () => {
@@ -166,11 +165,11 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     const onError = (e: Event | string) => {
       cleanup();
       if (typeof e === 'string') {
-        reject(new Error(`Error loading video for thumbnail: ${e}`));
+        reject(new Error(`خطأ في تحميل الفيديو للصورة المصغرة: ${e}`));
         return;
       }
       const errorMsg = (e.target as HTMLVideoElement)?.error?.message || 'Unknown video error';
-      reject(new Error(`Error loading video for thumbnail: ${errorMsg}`));
+      reject(new Error(`خطأ في تحميل الفيديو للصورة المصغرة: ${errorMsg}`));
     };
 
     const onLoadedMetadata = () => {
@@ -259,48 +258,14 @@ export const getSupportedVideoMimeType = () => {
     return {};
 };
 
-export const isQuotaExceededError = (error: unknown): boolean => {
-    if (!error) return false;
-
-    if (error instanceof DOMException) {
-        if (error.name === 'QuotaExceededError') {
-            return true;
-        }
-        if (error.name === 'UnknownError' && /quota|storage|disk/i.test(error.message)) {
-            return true;
-        }
-        if (typeof (error as any).code === 'number' && (error as any).code === 22) {
-            return true;
-        }
-    }
-
-    if (typeof error === 'object' && error !== null) {
-        const name = (error as any).name as string | undefined;
-        const code = (error as any).code as number | undefined;
-        const message = (error as any).message as string | undefined;
-
-        if (name === 'QuotaExceededError') {
-            return true;
-        }
-        if (typeof code === 'number' && code === 22) {
-            return true;
-        }
-        if (message && /quota|storage|disk/i.test(message)) {
-            return true;
-        }
-    }
-
-    if (typeof error === 'string' && /quota|storage|disk/i.test(error)) {
-        return true;
-    }
-
-    return false;
-};
-
 export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<{ blob: Blob, wasTrimmed: boolean }> => {
   return new Promise((resolve, reject) => {
+    if (typeof window.MediaRecorder === 'undefined' || typeof (HTMLCanvasElement.prototype as any).captureStream !== 'function') {
+        return reject(new Error('متصفحك لا يدعم معالجة الفيديو. يرجى تحديث متصفحك أو استخدام متصفح آخر مثل Chrome أو Firefox.'));
+    }
+
     let timer: number | null = null;
-    const TIMEOUT_MS = 60000; // زيادة من 20 إلى 60 ثانية لدعم فيديوهات أكبر
+    const TIMEOUT_MS = 180000; // 180 seconds for loading and trimming.
 
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
@@ -323,14 +288,11 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     
     timer = window.setTimeout(() => {
         cleanup();
-        reject(new Error(`Video trimming timed out after ${TIMEOUT_MS / 1000}s.`));
+        reject(new Error(`استغرقت معالجة الفيديو وقتًا طويلاً جدًا (${TIMEOUT_MS / 1000} ثانية). قد يكون الفيديو كبيرًا جدًا أو الجهاز بطيئًا.`));
     }, TIMEOUT_MS);
 
     video.onloadedmetadata = () => {
-      if (video.duration <= maxDurationSeconds) {
-        cleanup();
-        return resolve({ blob: videoBlob, wasTrimmed: false });
-      }
+      const wasTrimmed = video.duration > maxDurationSeconds;
 
       try {
         canvas.width = video.videoWidth;
@@ -347,10 +309,25 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
         }
 
         const stream = (canvas as any).captureStream();
-        const options = getSupportedVideoMimeType();
-        const finalMimeType = options.mimeType || 'video/webm';
+        
+        // FIX: Enforce a specific bitrate to control output file size and prevent memory crashes.
+        const preferredOptions: MediaRecorderOptions = {
+            mimeType: 'video/webm;codecs=vp8',
+            videoBitsPerSecond: 1 * 1024 * 1024, // 1 Mbps
+        };
+        let recorder: MediaRecorder;
+        let finalMimeType: string;
 
-        const recorder = new MediaRecorder(stream, options);
+        if (MediaRecorder.isTypeSupported(preferredOptions.mimeType!)) {
+            recorder = new MediaRecorder(stream, preferredOptions);
+            finalMimeType = preferredOptions.mimeType!;
+        } else {
+            console.warn(`Preferred MIME type ${preferredOptions.mimeType} not supported. Falling back.`);
+            const fallbackOptions = getSupportedVideoMimeType();
+            recorder = new MediaRecorder(stream, fallbackOptions);
+            finalMimeType = fallbackOptions.mimeType || 'video/webm';
+        }
+
         const chunks: Blob[] = [];
         recorder.ondataavailable = e => chunks.push(e.data);
 
@@ -358,9 +335,9 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
           cleanup();
           const trimmedBlob = new Blob(chunks, { type: finalMimeType });
            if (trimmedBlob.size === 0) {
-              return reject(new Error("Trimming resulted in an empty video file."));
+              return reject(new Error("نتج عن المعالجة ملف فيديو فارغ. قد يحدث هذا إذا كان الفيديو قصيرًا جدًا أو هناك مشكلة في الترميز."));
           }
-          resolve({ blob: trimmedBlob, wasTrimmed: true });
+          resolve({ blob: trimmedBlob, wasTrimmed });
         };
 
         recorder.onerror = (e) => {
@@ -383,6 +360,8 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
             reject(playError);
         });
 
+        const durationToRecord = Math.min(video.duration, maxDurationSeconds);
+
         setTimeout(() => {
           if (recorder.state === 'recording') {
             recorder.stop();
@@ -390,7 +369,7 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
           if (!video.paused) {
             video.pause();
           }
-        }, maxDurationSeconds * 1000);
+        }, durationToRecord * 1000);
 
       } catch (e) {
         cleanup();
@@ -402,11 +381,11 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     video.onerror = (e: Event | string) => {
       cleanup();
       if (typeof e === 'string') {
-        reject(new Error(`Error loading video for trimming: ${e}`));
+        reject(new Error(`خطأ في تحميل الفيديو للمعالجة: ${e}`));
         return;
       }
       const errorMessage = (e.target as HTMLVideoElement)?.error?.message || 'Unknown error';
-      reject(new Error(`Error loading video for trimming: ${errorMessage}`));
+      reject(new Error(`خطأ في تحميل الفيديو للمعالجة: ${errorMessage}`));
     };
     
     video.src = url;
@@ -417,8 +396,12 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
 
 export const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
     return new Promise(async (resolve, reject) => {
+        if (typeof window.MediaRecorder === 'undefined' || typeof (HTMLCanvasElement.prototype as any).captureStream !== 'function') {
+            return reject(new Error('متصفحك لا يدعم معالجة الفيديو. يرجى تحديث متصفحك أو استخدام متصفح آخر مثل Chrome أو Firefox.'));
+        }
+
         let timer: number | null = null;
-        const TIMEOUT_MS = 60000; // 60s, can be long for large videos.
+        const TIMEOUT_MS = 180000; // 180s, can be long for large videos.
 
         const video = document.createElement('video');
         const canvas = document.createElement('canvas');
@@ -437,7 +420,7 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
 
         timer = window.setTimeout(() => {
             cleanup();
-            reject(new Error(`Removing audio timed out after ${TIMEOUT_MS / 1000}s.`));
+            reject(new Error(`استغرقت عملية إزالة الصوت وقتًا طويلاً جدًا (${TIMEOUT_MS / 1000} ثانية).`));
         }, TIMEOUT_MS);
 
         try {
@@ -463,9 +446,24 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                     }
                     
                     const stream = (canvas as any).captureStream();
-                    const options = getSupportedVideoMimeType();
-                    const recorder = new MediaRecorder(stream, options);
-                    const finalMimeType = options.mimeType || 'video/webm';
+                    
+                    // FIX: Enforce a specific bitrate to control output file size and prevent memory crashes.
+                    const preferredOptions: MediaRecorderOptions = {
+                        mimeType: 'video/webm;codecs=vp8',
+                        videoBitsPerSecond: 1 * 1024 * 1024, // 1 Mbps
+                    };
+                    let recorder: MediaRecorder;
+                    let finalMimeType: string;
+
+                    if (MediaRecorder.isTypeSupported(preferredOptions.mimeType!)) {
+                        recorder = new MediaRecorder(stream, preferredOptions);
+                        finalMimeType = preferredOptions.mimeType!;
+                    } else {
+                        console.warn(`Preferred MIME type ${preferredOptions.mimeType} not supported. Falling back.`);
+                        const fallbackOptions = getSupportedVideoMimeType();
+                        recorder = new MediaRecorder(stream, fallbackOptions);
+                        finalMimeType = fallbackOptions.mimeType || 'video/webm';
+                    }
                     
                     const chunks: Blob[] = [];
                     recorder.ondataavailable = e => chunks.push(e.data);
@@ -475,7 +473,7 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                         try {
                             const mutedBlob = new Blob(chunks, { type: finalMimeType });
                             if (mutedBlob.size === 0) {
-                                return reject(new Error("Processing resulted in an empty video file."));
+                                return reject(new Error("نتج عن المعالجة ملف فيديو فارغ."));
                             }
                             const mutedBase64 = await blobToBase64(mutedBlob);
                             resolve({ base64: mutedBase64, mimeType: finalMimeType });
@@ -486,7 +484,7 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                     
                     recorder.onerror = (e) => {
                         cleanup();
-                        reject(new Error(`MediaRecorder encountered an error during processing.`));
+                        reject(new Error(`واجه MediaRecorder خطأ أثناء المعالجة.`));
                     };
 
                     const drawFrame = () => {
@@ -521,9 +519,15 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                 }
             };
             
-            video.onerror = (e) => {
+// FIX: Added explicit type guarding to handle string-based errors and resolve TypeScript error.
+            video.onerror = (e: Event | string) => {
                  cleanup();
-                 reject(new Error(`Error loading video for processing: ${(e.target as HTMLVideoElement)?.error?.message || 'Unknown error'}`));
+                 if (typeof e === 'string') {
+                    reject(new Error(`خطأ في تحميل الفيديو للمعالجة: ${e}`));
+                    return;
+                 }
+                 const errorMessage = (e.target as HTMLVideoElement)?.error?.message || 'Unknown error';
+                 reject(new Error(`خطأ في تحميل الفيديو للمعالجة: ${errorMessage}`));
             };
 
             video.src = URL.createObjectURL(videoBlob);

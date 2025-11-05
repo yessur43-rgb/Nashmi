@@ -1,10 +1,12 @@
+
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 // FIX: Imported JournalImageAnalysis to resolve type error.
 import { Trip, JournalEntry, JournalPhoto, JournalVideo, Expense, JournalImageAnalysis } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
 // FIX: Imported getSupportedVideoMimeType to resolve error.
-import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString, isQuotaExceededError } from '../utils/helpers';
+import { blobToBase64, compressImageAndConvertToBase64, generateThumbnail, generateVideoThumbnail, trimVideoBlob, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
 import LoadingSpinner from './common/LoadingSpinner';
 import AudioRecorder from './common/AudioRecorder';
 import StorageUsage from './common/StorageUsage';
@@ -337,28 +339,14 @@ const TripAndStoryList: React.FC<{
 };
 
 
-const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'>) => Promise<void>; onCancel: () => void;}> = ({ onSave, onCancel }) => {
+const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'>) => void; onCancel: () => void;}> = ({ onSave, onCancel }) => {
     const [name, setName] = useState('');
     const [startDate, setStartDate] = useState(getLocalDateString());
     const [error, setError] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = async () => {
+    const handleSubmit = () => {
         if (!name || !startDate) { setError("يرجى ملء جميع الحقول."); return; }
-        setError('');
-        setIsSubmitting(true);
-        try {
-            await onSave({ name, startDate });
-        } catch (err) {
-            console.error('Failed to save trip', err);
-            if (isQuotaExceededError(err)) {
-                setError('نفدت مساحة التخزين المحلية. احذف بعض الرحلات أو الوسائط وحاول مرة أخرى.');
-            } else {
-                setError('حدث خطأ أثناء حفظ الرحلة. حاول مرة أخرى.');
-            }
-        } finally {
-            setIsSubmitting(false);
-        }
+        setError(''); onSave({ name, startDate });
     };
 
     return (
@@ -373,22 +361,20 @@ const TripForm: React.FC<{onSave: (trip: Omit<Trip, 'id' | 'entries' | 'endDate'
                 </div>
             </div>
             <div className="flex gap-4">
-                <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold" disabled={isSubmitting}>إلغاء</button>
-                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold disabled:opacity-50" disabled={isSubmitting}>
-                    {isSubmitting ? 'جاري الحفظ...' : 'بدء الرحلة'}
-                </button>
+                <button onClick={onCancel} className="w-full p-3 bg-gray-200 dark:bg-gray-700 rounded-lg font-semibold">إلغاء</button>
+                <button onClick={handleSubmit} className="w-full p-3 bg-primary text-white rounded-lg font-semibold">بدء الرحلة</button>
             </div>
         </div>
     );
 };
 
 const TripDetails: React.FC<{
-    trip: Trip;
-    onBack: () => void;
-    onEditEntry: (entry: JournalEntry) => void;
-    onAddEntry: () => void;
+    trip: Trip; 
+    onBack: () => void; 
+    onEditEntry: (entry: JournalEntry) => void; 
+    onAddEntry: () => void; 
     onDeleteTrip: (tripId: string) => void;
-    onUpdateTrip: (updatedTrip: Trip) => Promise<void>;
+    onUpdateTrip: (updatedTrip: Trip) => void;
     onViewStory: () => void;
 }> = ({ trip, onBack, onAddEntry, onEditEntry, onDeleteTrip, onUpdateTrip, onViewStory }) => {
     const [summary, setSummary] = useState<string | null>(null);
@@ -398,27 +384,6 @@ const TripDetails: React.FC<{
     const nameInputRef = useRef<HTMLInputElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const ENTRIES_PER_PAGE = 10;
-    const [updateError, setUpdateError] = useState<string | null>(null);
-    const [isSavingTrip, setIsSavingTrip] = useState(false);
-
-    const applyTripUpdate = useCallback(async (updatedTrip: Trip) => {
-        setIsSavingTrip(true);
-        try {
-            await onUpdateTrip(updatedTrip);
-            setUpdateError(null);
-            return true;
-        } catch (err) {
-            console.error('Failed to update trip', err);
-            if (isQuotaExceededError(err)) {
-                setUpdateError('نفدت مساحة التخزين المحلية. احذف بعض الوسائط أو الرحلات ثم حاول مرة أخرى.');
-            } else {
-                setUpdateError('تعذر حفظ التغييرات. حاول مرة أخرى.');
-            }
-            return false;
-        } finally {
-            setIsSavingTrip(false);
-        }
-    }, [onUpdateTrip]);
     
     useEffect(() => {
         const today = getLocalDateString();
@@ -435,12 +400,12 @@ const TripDetails: React.FC<{
                 expenses: [],
             };
             const updatedTrip = { ...trip, entries: [newEntry, ...trip.entries] };
-            void applyTripUpdate(updatedTrip);
+            onUpdateTrip(updatedTrip);
         }
-    }, [trip, applyTripUpdate]);
+    }, [trip, onUpdateTrip]);
 
-    const sortedEntries = useMemo(() =>
-        [...trip.entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    const sortedEntries = useMemo(() => 
+        trip.entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [trip.entries]);
 
     const displayedEntries = useMemo(() =>
@@ -454,25 +419,17 @@ const TripDetails: React.FC<{
         }
     }, [isEditingName]);
 
-    const handleSaveName = async () => {
-        const trimmed = editedName.trim();
-        if (!trimmed) {
-            setIsEditingName(false);
-            return;
-        }
-        if (trimmed !== trip.name) {
-            const success = await applyTripUpdate({ ...trip, name: trimmed });
-            if (!success) {
-                return;
-            }
+    const handleSaveName = () => {
+        if (editedName.trim() && editedName.trim() !== trip.name) {
+            onUpdateTrip({ ...trip, name: editedName.trim() });
         }
         setIsEditingName(false);
     };
-
-    const handleEndTrip = async () => {
+    
+    const handleEndTrip = () => {
         if (window.confirm("هل أنت متأكد من إنهاء هذه الرحلة؟ لا يمكنك إضافة يوميات جديدة بعد إنهائها.")) {
             const today = getLocalDateString();
-            await applyTripUpdate({ ...trip, endDate: today });
+            onUpdateTrip({ ...trip, endDate: today });
         }
     };
 
@@ -523,30 +480,23 @@ const TripDetails: React.FC<{
                 });
 
                 const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
-                const success = await applyTripUpdate(updatedTrip);
-                if (success) {
-                    onViewStory();
-                }
+                onUpdateTrip(updatedTrip);
+                onViewStory();
             }
         } finally {
             setIsProcessing(false);
         }
     };
 
-    const handleDeleteEntry = async (entryId: string) => {
+    const handleDeleteEntry = (entryId: string) => {
         if (window.confirm("هل أنت متأكد من حذف هذه اليوميات؟")) {
             const updatedEntries = trip.entries.filter(e => e.id !== entryId);
-            await applyTripUpdate({ ...trip, entries: updatedEntries });
+            onUpdateTrip({ ...trip, entries: updatedEntries });
         }
     };
 
     return (
-        <div className="relative p-4 md:p-6 space-y-6 animate-fade-in">
-            {isSavingTrip && (
-                <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-black/10 dark:bg-black/40">
-                    <LoadingSpinner message="جاري الحفظ..." />
-                </div>
-            )}
+        <div className="p-4 md:p-6 space-y-6 animate-fade-in">
             <div className="flex items-center justify-between gap-2">
                 <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
                 {isEditingName ? (
@@ -563,10 +513,10 @@ const TripDetails: React.FC<{
                     <h2 className="text-2xl font-bold text-center flex-grow truncate px-2" onClick={() => setIsEditingName(true)}>{trip.name}</h2>
                 )}
                 <div className="flex items-center">
-                    <button onClick={() => isEditingName ? handleSaveName() : setIsEditingName(true)} disabled={isSavingTrip} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                    <button onClick={() => isEditingName ? handleSaveName() : setIsEditingName(true)} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
                         {isEditingName ? <Save size={20} /> : <Edit size={20} />}
                     </button>
-                    <button onClick={() => onDeleteTrip(trip.id)} disabled={isSavingTrip} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 disabled:opacity-50"><Trash2 size={20} /></button>
+                    <button onClick={() => onDeleteTrip(trip.id)} className="p-2 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><Trash2 size={20} /></button>
                 </div>
             </div>
              {grandTotal > 0 && (
@@ -575,35 +525,26 @@ const TripDetails: React.FC<{
                 </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button onClick={handleSummarize} disabled={isProcessing || isSavingTrip || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
+                <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
                 </button>
                 {trip.exportedStoryHtml ? (
-                    <button onClick={onViewStory} disabled={isSavingTrip} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg font-semibold shadow-md hover:bg-green-600 disabled:opacity-50">
+                    <button onClick={onViewStory} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-green-500 text-white rounded-lg font-semibold shadow-md hover:bg-green-600">
                         <BookOpen size={20} />
                         <span>عرض القصة</span>
                     </button>
                 ) : (
-                    <button onClick={handleGenerateStory} disabled={isProcessing || isSavingTrip} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
+                    <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
                         <Download size={20}/><span>إنشاء قصة</span>
                     </button>
                 )}
             </div>
 
             {isProcessing && <LoadingSpinner message="جاري العمل..." />}
-            {updateError && (
-                <div className="p-3 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-200">
-                    {updateError}
-                </div>
-            )}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
             
             {isOngoing && (
-                 <button
-                    onClick={onAddEntry}
-                    disabled={isSavingTrip}
-                    className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark disabled:opacity-50"
-                >
+                 <button onClick={onAddEntry} className="w-full flex items-center justify-center gap-2 p-4 bg-primary text-white rounded-lg font-bold shadow-lg hover:bg-primary-dark">
                     <Plus /><span>إضافة يوميات جديدة</span>
                 </button>
             )}
@@ -624,10 +565,10 @@ const TripDetails: React.FC<{
 
                      return (
                          <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow flex items-center gap-3">
-                             <button onClick={() => !isSavingTrip && onEditEntry(entry)} disabled={isSavingTrip} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0 disabled:opacity-50" aria-label="تعديل اليومية">
+                             <button onClick={() => onEditEntry(entry)} className="p-3 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0" aria-label="تعديل اليومية">
                                  <Edit size={20} />
                              </button>
-                             <div className={`flex-grow min-w-0 cursor-pointer ${isSavingTrip ? 'pointer-events-none opacity-60' : ''}`} onClick={() => !isSavingTrip && onEditEntry(entry)}>
+                             <div className="flex-grow min-w-0 cursor-pointer" onClick={() => onEditEntry(entry)}>
                                  <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">{entry.title || `يوميات ${entry.date}`}</h3>
                                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{entry.date}</p>
                                  <p className="mt-2 text-gray-600 dark:text-gray-300 break-words">{snippet}</p>
@@ -638,7 +579,7 @@ const TripDetails: React.FC<{
                                     </div>
                                 )}
                              </div>
-                             <button onClick={() => handleDeleteEntry(entry.id)} disabled={isSavingTrip} className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0 disabled:opacity-50" aria-label="حذف اليومية">
+                             <button onClick={() => handleDeleteEntry(entry.id)} className="p-3 text-red-500 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 flex-shrink-0" aria-label="حذف اليومية">
                                  <Trash2 size={20} />
                              </button>
                          </div>
@@ -657,10 +598,9 @@ const TripDetails: React.FC<{
              </div>
              {isOngoing && (
                 <div className="text-center mt-6">
-                    <button
+                    <button 
                         onClick={handleEndTrip}
-                        disabled={isSavingTrip}
-                        className="flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded-lg font-semibold hover:bg-red-200 dark:hover:bg-red-900 disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded-lg font-semibold hover:bg-red-200 dark:hover:bg-red-900"
                     >
                         <CheckSquare size={18} />
                         <span>إنهاء الرحلة</span>
@@ -671,7 +611,7 @@ const TripDetails: React.FC<{
     );
 };
 
-const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => Promise<void>; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
+const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave: (trip: Trip) => void; onCancel: () => void; location: { lat: number; lon: number } | null;}> = ({ trip, entry, onSave, onCancel, location }) => {
     const [currentEntry, setCurrentEntry] = useState<JournalEntry>(entry || { id: generateId(), date: getLocalDateString(), title: '', notes: '', photos: [], videos: [], expenses: [] });
     const [isProcessing, setIsProcessing] = useState(false);
     const photoInputRef = useRef<HTMLInputElement>(null);
@@ -737,34 +677,42 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
     }, [fullscreenMedia]);
 
     const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const MAX_PHOTO_SIZE_MB = 20;
+        const MAX_VIDEO_SIZE_MB = 100;
+        const MAX_PHOTO_SIZE_BYTES = MAX_PHOTO_SIZE_MB * 1024 * 1024;
+        const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
+
         if (!e.target.files) return;
-        const files: File[] = Array.from(e.target.files);
-        if (files.length === 0) return;
-
-        // فحص حجم الفيديوهات قبل المعالجة
-        const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB
-        const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
-
-        for (const file of files) {
-            if (file.type.startsWith('video/')) {
-                if (file.size > MAX_VIDEO_SIZE) {
-                    setFormError(`الفيديو "${file.name}" كبير جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 100 MB`);
-                    e.target.value = '';
-                    return;
-                }
-            } else if (file.type.startsWith('image/')) {
-                if (file.size > MAX_IMAGE_SIZE) {
-                    setFormError(`الصورة "${file.name}" كبيرة جداً (${(file.size / 1024 / 1024).toFixed(1)} MB). الحد الأقصى: 20 MB`);
-                    e.target.value = '';
-                    return;
-                }
-            }
-        }
+        const allFiles: File[] = Array.from(e.target.files);
+        if (allFiles.length === 0) return;
 
         setFormError(null);
-        const newQueueItems = files.map(file => ({ file, totalInBatch: files.length }));
-        setMediaQueue(prev => [...prev, ...newQueueItems]);
 
+        const validFiles: File[] = [];
+        const oversizedFiles: string[] = [];
+
+        allFiles.forEach(file => {
+            if (file.type.startsWith('image/') && file.size > MAX_PHOTO_SIZE_BYTES) {
+                oversizedFiles.push(`${file.name} (أكبر من ${MAX_PHOTO_SIZE_MB} ميجابايت)`);
+            } else if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_BYTES) {
+                oversizedFiles.push(`${file.name} (أكبر من ${MAX_VIDEO_SIZE_MB} ميجابايت)`);
+            } else {
+                validFiles.push(file);
+            }
+        });
+
+        if (oversizedFiles.length > 0) {
+            setFormError(`تم تخطي بعض الملفات لأنها كبيرة جدًا: ${oversizedFiles.join(', ')}`);
+        }
+        
+        if (validFiles.length === 0) {
+             e.target.value = ''; // Reset file input
+            return;
+        }
+
+        const newQueueItems = validFiles.map(file => ({ file, totalInBatch: validFiles.length }));
+        setMediaQueue(prev => [...prev, ...newQueueItems]);
+        
         // Reset file input to allow selecting the same file again
         e.target.value = '';
     };
@@ -809,21 +757,15 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         updateEntry({ photos: [...currentEntry.photos, newPhoto], notes: newNotes.trim() });
                     }
                 } else if (fileToProcess.type.startsWith('video/')) {
-                    // فحص دعم المتصفح لمعالجة الفيديو
-                    const canvas = document.createElement('canvas');
-                    if (typeof (canvas as any).captureStream !== 'function') {
-                        throw new Error('متصفحك لا يدعم معالجة الفيديو. استخدم Google Chrome أو Microsoft Edge.');
-                    }
-
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
-                    const { blob: processedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+                    const { blob: processedVideoBlob } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
                     setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
-                    let base64 = await blobToBase64(processedVideoBlob);
-                    let mimeType = processedVideoBlob.type;
+                    const base64 = await blobToBase64(processedVideoBlob);
+                    const mimeType = processedVideoBlob.type;
                     
                     await yieldToMain();
                     const thumbnailBase64 = await generateVideoThumbnail(new File([processedVideoBlob], fileToProcess.name, { type: mimeType })).catch(e => {
@@ -833,52 +775,17 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                     const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
                     
-                    if (!wasTrimmed) {
-                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
-                         await yieldToMain();
-                         try {
-                            const mutedVideo = await removeAudioFromVideo(base64, mimeType);
-                            base64 = mutedVideo.base64;
-                            mimeType = mutedVideo.mimeType;
-                        } catch (muteError) {
-                            console.error("Could not remove audio from video, storing original:", muteError);
-                            setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
-                        }
-                    }
-
                     const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
                     const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
                     updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
                 }
-            } catch (error: any) {
+            } catch (error) {
                 console.error("Error processing file:", fileToProcess.name, error);
-
-                // تحديد نوع الخطأ وعرض رسالة واضحة
-                let errorMessage = `حدث خطأ أثناء معالجة "${fileToProcess.name}"`;
-
-                const errorText = error?.message || String(error);
-
-                if (errorText.includes('timeout') || errorText.includes('timed out')) {
-                    errorMessage = `الفيديو "${fileToProcess.name}" يستغرق وقتاً طويلاً للمعالجة. جرب فيديو أصغر أو أقصر (أقل من 30 ثانية).`;
-                } else if (errorText.includes('QuotaExceeded') || errorText.includes('quota') || errorText.includes('storage')) {
-                    errorMessage = 'مساحة التخزين ممتلئة! احذف بعض الفيديوهات أو الصور القديمة.';
-                } else if (errorText.includes('not supported') || errorText.includes('captureStream')) {
-                    errorMessage = 'متصفحك لا يدعم معالجة الفيديو بشكل كامل. استخدم Google Chrome أو Microsoft Edge للحصول على أفضل تجربة.';
-                } else if (errorText.includes('codec') || errorText.includes('format')) {
-                    errorMessage = `تنسيق الفيديو "${fileToProcess.name}" غير مدعوم. جرب تحويله إلى MP4 أو WebM.`;
-                } else if (errorText.includes('dimensions') || errorText.includes('resolution')) {
-                    errorMessage = `دقة الفيديو "${fileToProcess.name}" عالية جداً. جرب فيديو بدقة أقل (720p أو أقل).`;
-                } else if (errorText.includes('Failed to fetch') || errorText.includes('network')) {
-                    errorMessage = 'مشكلة في الاتصال بالإنترنت. تحقق من الاتصال وحاول مرة أخرى.';
-                } else {
-                    // إضافة تفاصيل الخطأ للمستخدم
-                    errorMessage = `حدث خطأ: ${errorText.substring(0, 100)}`;
-                }
-
-                setFormError(errorMessage);
+                const errorMessage = error instanceof Error ? error.message : `خطأ غير معروف`;
+                setFormError(`فشلت معالجة ${fileToProcess.name}: ${errorMessage}`);
             } finally {
                 setMediaQueue(prev => prev.slice(1));
-                setIsProcessingMedia(false);
+                setIsProcessingMedia(false); 
             }
         };
 
@@ -1112,14 +1019,10 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
         try {
             const finalEntry = { ...currentEntry, title: currentEntry.title || `يوميات ${currentEntry.date}` };
             const updatedEntries = entry ? trip.entries.map(e => e.id === entry.id ? finalEntry : e) : [...trip.entries, finalEntry];
-            await onSave({ ...trip, entries: updatedEntries });
+            onSave({ ...trip, entries: updatedEntries });
         } catch (error) {
             console.error("Error saving entry:", error);
-            if (isQuotaExceededError(error)) {
-                setFormError('نفدت مساحة التخزين المحلية. احذف بعض الوسائط أو الرحلات ثم حاول مرة أخرى.');
-            } else {
-                setFormError("حدث خطأ أثناء الحفظ.");
-            }
+            setFormError("حدث خطأ أثناء الحفظ.");
         } finally {
             setIsProcessing(false);
         }
