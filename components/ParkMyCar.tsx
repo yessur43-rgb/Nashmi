@@ -144,7 +144,7 @@ const ParkMyCar: React.FC<ParkMyCarProps> = ({ location, locationError }) => {
         <div className="flex flex-col items-center justify-center text-center p-8 space-y-6">
             <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/*"
                 capture="environment"
                 ref={cameraInputRef}
                 onChange={handleFileChange}

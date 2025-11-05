@@ -730,9 +730,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
-                    const { blob: processedVideoBlob } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+                    const { blob: processedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
-                    setProcessingStatus(`معالجة الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     let base64 = await blobToBase64(processedVideoBlob);
                     let mimeType = processedVideoBlob.type;
@@ -743,21 +743,24 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         return undefined;
                     });
 
-                    // Per user request, ensure all videos have no sound.
-                    setProcessingStatus(`إزالة الصوت من الفيديو ${currentNumber} من ${totalInBatch}...`);
-                    await yieldToMain();
-                    try {
-                        const mutedVideo = await removeAudioFromVideo(base64, mimeType);
-                        base64 = mutedVideo.base64;
-                        mimeType = mutedVideo.mimeType;
-                    } catch (muteError) {
-                        console.error("Could not remove audio from video, storing original:", muteError);
-                        setFormError("لم نتمكن من إزالة الصوت من الفيديو، سيتم حفظه بصوته الأصلي.");
-                    }
+                    const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
                     
-                    // Per user request, do not generate comments for videos.
-                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, lat: location?.lat, lon: location?.lon };
-                    updateEntry({ videos: [...currentEntry.videos, newVideo] });
+                    if (!wasTrimmed) {
+                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
+                         await yieldToMain();
+                         try {
+                            const mutedVideo = await removeAudioFromVideo(base64, mimeType);
+                            base64 = mutedVideo.base64;
+                            mimeType = mutedVideo.mimeType;
+                        } catch (muteError) {
+                            console.error("Could not remove audio from video, storing original:", muteError);
+                            setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
+                        }
+                    }
+
+                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
+                    const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
+                    updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
                 }
             } catch (error) {
                 console.error("Error processing file:", fileToProcess.name, error);
@@ -770,7 +773,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
         const timeoutId = setTimeout(processQueue, 100); // Give UI time to update status
         return () => clearTimeout(timeoutId);
-    }, [mediaQueue, isProcessingMedia, location, currentEntry.expenses, currentEntry.photos, currentEntry.videos]);
+    }, [mediaQueue, isProcessingMedia, location, currentEntry.notes, currentEntry.photos, currentEntry.videos, currentEntry.expenses]);
 
 
     const handleNoteFromAudio = async (audioBlob: Blob) => {
@@ -1017,7 +1020,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                 <div className="flex items-center gap-4">
                     <AudioRecorder onRecordingComplete={handleAddExpenseFromAudioInModal} disabled={isProcessingExpense} />
-                    <input type="file" accept="image/jpeg,image/png,image/webp" ref={expenseReceiptInputRef} onChange={handleScanReceiptForModal} className="hidden" />
+                    <input type="file" accept="image/*" ref={expenseReceiptInputRef} onChange={handleScanReceiptForModal} className="hidden" />
                     <button onClick={() => expenseReceiptInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 p-3 bg-violet-500 text-white rounded-lg font-semibold shadow-md hover:bg-violet-600">
                         <Receipt size={20}/><span>امسح الفاتورة</span>
                     </button>
@@ -1063,7 +1066,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
                 <div className="space-y-2">
                     <label className="text-sm text-gray-400">صور المصروف (اختياري)</label>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" ref={expensePhotoInputRef} onChange={handleExpensePhotoUpload} className="hidden" />
+                    <input type="file" accept="image/*" ref={expensePhotoInputRef} onChange={handleExpensePhotoUpload} className="hidden" />
                     {expenseData.photo ? (
                         <div className="relative w-full h-32">
                            <img src={`data:image/jpeg;base64,${expenseData.photo.thumbnailBase64 || expenseData.photo.base64}`} alt="معاينة المصروف" className="w-full h-full object-cover rounded-lg" loading="lazy" />
@@ -1153,7 +1156,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
             <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-3">
                 <h3 className="font-bold">الصور والفيديوهات</h3>
-                <input type="file" accept="image/jpeg,image/png,image/webp" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
+                <input type="file" accept="image/*" multiple ref={photoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <input type="file" accept="video/*" multiple ref={videoInputRef} onChange={handleMediaUpload} className="hidden" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button onClick={() => photoInputRef.current?.click()} disabled={isProcessingMedia} className="flex items-center justify-center gap-2 p-3 bg-blue-500 text-white rounded-lg font-semibold disabled:opacity-50"><ImageIcon/><span>إضافة صورة</span></button>

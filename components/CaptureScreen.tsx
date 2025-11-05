@@ -1,9 +1,10 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString, compressImageAndConvertToBase64, generateThumbnail } from '../utils/helpers';
+import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 import QuickAudioModal from './common/QuickAudioModal';
 import ImageEditor from './ImageEditor'; // Import the new editor component
@@ -11,24 +12,13 @@ import { Camera, Video, Mic, User, Grid3X3, Sun, Moon, Key, AlertTriangle, Loade
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-export type CapturedPhoto = {
-    type: 'photo';
+export type CapturedMedia = {
+    type: 'photo' | 'video';
     objectUrl: string;
     base64: string;
     blob: Blob;
-    mimeType: string;
+    mimeType?: string;
 };
-
-export type CapturedVideo = {
-    type: 'video';
-    objectUrl: string;
-    base64?: string;
-    blob: Blob;
-    mimeType: string;
-};
-
-export type CapturedMedia = CapturedPhoto | CapturedVideo;
-
 
 interface CaptureScreenProps {
   onSelectTool: (tool: Tool, initialState?: any) => void;
@@ -100,14 +90,12 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
 
     try {
         const objectUrl = URL.createObjectURL(file);
+        const base64 = await blobToBase64(file);
         
         if (file.type.startsWith('image/')) {
-            const base64 = await compressImageAndConvertToBase64(file);
-            const photo: CapturedPhoto = { type: 'photo', objectUrl, base64, blob: file, mimeType: 'image/jpeg' };
-            setCapturedMedia(photo);
+            setCapturedMedia({ type: 'photo', objectUrl, base64, blob: file });
         } else if (file.type.startsWith('video/')) {
-            const video: CapturedVideo = { type: 'video', objectUrl, blob: file, mimeType: file.type };
-            setCapturedMedia(video);
+            setCapturedMedia({ type: 'video', objectUrl, base64, blob: file, mimeType: file.type });
         }
         setViewMode('preview');
     } catch (err) {
@@ -136,38 +124,33 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         const { trip, entry } = await getOrCreateActiveJournalObjects();
         
         if (capturedMedia.type === 'photo') {
-            const thumbnailBase64 = await generateThumbnail(capturedMedia.base64);
             const analysis = await geminiService.analyzeImageForJournal(capturedMedia.base64, 'image/jpeg', location);
             if (!analysis) throw new Error("فشل تحليل الصورة.");
             if (analysis.type === 'expense' && analysis.data.amount != null) {
                 const { description, amount, currency, amountInSAR } = analysis.data;
-                const newExpense: Expense = { id: generateId(), description, amount, currency, amountInSAR, photos: [{ id: generateId(), base64: capturedMedia.base64, thumbnailBase64, lat: location.lat, lon: location.lon }] };
+                const newExpense: Expense = { id: generateId(), description, amount, currency, amountInSAR, photos: [{ id: generateId(), base64: capturedMedia.base64, lat: location.lat, lon: location.lon }] };
                 entry.expenses.push(newExpense);
             } else {
                 const description = analysis.data.description || 'وصف تلقائي للصورة.';
-                const newPhoto: JournalPhoto = { id: generateId(), base64: capturedMedia.base64, thumbnailBase64, description, lat: location.lat, lon: location.lon };
+                const newPhoto: JournalPhoto = { id: generateId(), base64: capturedMedia.base64, description, lat: location.lat, lon: location.lon };
                 entry.photos.push(newPhoto);
                 if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
             }
-        } else if (capturedMedia.type === 'video') {
-            let finalBase64 = capturedMedia.base64 || await blobToBase64(capturedMedia.blob);
-            let finalMimeType = capturedMedia.mimeType;
+        } else if (capturedMedia.type === 'video' && capturedMedia.blob) {
+            let finalBase64 = capturedMedia.base64;
+            let finalMimeType = capturedMedia.mimeType || 'video/webm';
             if (shouldMuteVideo) {
-                try {
-                    const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
-                    finalBase64 = muted.base64;
-                    finalMimeType = muted.mimeType;
-                } catch (muteError) {
-                    console.error("Could not remove audio from video, storing original:", muteError);
-                    setError("لم نتمكن من إزالة الصوت من الفيديو، سيتم حفظه بصوته الأصلي.");
-                }
+                const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
+                finalBase64 = muted.base64;
+                finalMimeType = muted.mimeType;
             }
             const thumbnailBase64 = await generateVideoThumbnail(capturedMedia.blob).catch(() => undefined);
-            const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, lat: location.lat, lon: location.lon };
+            const description = await geminiService.analyzeMediaForJournal(finalBase64, finalMimeType, location);
+            const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, description, lat: location.lat, lon: location.lon };
             entry.videos.push(newVideo);
+            if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
         }
         await db.putTrip(trip);
-        window.dispatchEvent(new CustomEvent('custom-storage-update'));
     } catch (error) {
         console.error("Error processing media:", error);
         setError(error instanceof Error ? error.message : 'حدث خطأ أثناء معالجة المحتوى.');
@@ -192,13 +175,12 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         // Clean up old object URL
         URL.revokeObjectURL(capturedMedia.objectUrl);
 
-        const updatedPhoto: CapturedPhoto = {
+        setCapturedMedia({
             ...capturedMedia,
             base64: newBase64,
             blob: newBlob,
             objectUrl: newObjectUrl
-        };
-        setCapturedMedia(updatedPhoto);
+        });
     }
     setViewMode('preview');
   };
@@ -285,7 +267,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
         {isAudioModalOpen && <QuickAudioModal onClose={() => setIsAudioModalOpen(false)} onAudioAnalyzed={handleAudioAnalyzed} />}
         
-        <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" ref={photoInputRef} onChange={handleMediaSelect} className="hidden" />
+        <input type="file" accept="image/*" capture="environment" ref={photoInputRef} onChange={handleMediaSelect} className="hidden" />
         <input type="file" accept="video/*" capture="environment" ref={videoInputRef} onChange={handleMediaSelect} className="hidden" />
 
         <header className="flex-shrink-0 p-4 flex justify-between items-center">

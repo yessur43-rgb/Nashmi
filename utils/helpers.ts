@@ -97,11 +97,13 @@ export const generateThumbnail = (base64: string, maxDimension: number = 200): P
 export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
+    video.style.display = 'none';
     video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
 
     const canvas = document.createElement('canvas');
+    canvas.style.display = 'none';
     const url = URL.createObjectURL(file);
 
     const cleanup = () => {
@@ -109,6 +111,8 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      if (video.parentElement) document.body.removeChild(video);
+      if (canvas.parentElement) document.body.removeChild(canvas);
     };
 
     const onSeeked = () => {
@@ -166,6 +170,8 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
 
     // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
+    document.body.appendChild(video);
+    document.body.appendChild(canvas);
   });
 };
 
@@ -341,6 +347,8 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     
     // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
+    document.body.appendChild(video);
+    document.body.appendChild(canvas);
   });
 };
 
@@ -449,6 +457,8 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
 
             // Set src AFTER attaching listeners to prevent race conditions
             video.src = URL.createObjectURL(videoBlob);
+            document.body.appendChild(video);
+            document.body.appendChild(canvas);
 
         } catch (error: any) {
             cleanup();

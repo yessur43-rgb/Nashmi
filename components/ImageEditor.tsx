@@ -1,11 +1,10 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { CapturedPhoto } from './CaptureScreen';
+import { CapturedMedia } from './CaptureScreen';
 import * as geminiService from '../services/geminiService';
 import { Loader2, X, Save, Brush, Check, RotateCcw, AlertTriangle, Type } from 'lucide-react';
 
 interface ImageEditorProps {
-    media: CapturedPhoto;
+    media: CapturedMedia;
     onSave: (newBase64: string | null) => void;
     onCancel: () => void;
 }

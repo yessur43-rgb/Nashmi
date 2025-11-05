@@ -281,8 +281,8 @@ const AskMeAnything: React.FC<AskMeAnythingProps> = ({ initialState }) => {
                              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={isLoading} className="p-2 text-gray-500 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><ImageUp /></button>
                         </div>
                     </div>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" ref={imageInputRef} onChange={handleImageSelect} className="hidden" />
-                    <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" ref={cameraInputRef} onChange={handleImageSelect} className="hidden" />
+                    <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageSelect} className="hidden" />
+                    <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleImageSelect} className="hidden" />
                     <button type="submit" className="w-full p-3 bg-primary text-white rounded-lg font-semibold shadow-md hover:bg-primary-dark disabled:opacity-50 flex items-center justify-center gap-2" disabled={isLoading || (!query.trim() && !imageFile)}><Send/><span>إرسال</span></button>
                 </form>
             </div>
