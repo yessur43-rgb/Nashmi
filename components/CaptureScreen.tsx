@@ -1,9 +1,10 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString, compressImageAndConvertToBase64 } from '../utils/helpers';
+import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString, compressImageAndConvertToBase64, generateThumbnail } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 import QuickAudioModal from './common/QuickAudioModal';
 import ImageEditor from './ImageEditor'; // Import the new editor component
@@ -136,15 +137,16 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
         const { trip, entry } = await getOrCreateActiveJournalObjects();
         
         if (capturedMedia.type === 'photo') {
+            const thumbnailBase64 = await generateThumbnail(capturedMedia.base64);
             const analysis = await geminiService.analyzeImageForJournal(capturedMedia.base64, 'image/jpeg', location);
             if (!analysis) throw new Error("فشل تحليل الصورة.");
             if (analysis.type === 'expense' && analysis.data.amount != null) {
                 const { description, amount, currency, amountInSAR } = analysis.data;
-                const newExpense: Expense = { id: generateId(), description, amount, currency, amountInSAR, photos: [{ id: generateId(), base64: capturedMedia.base64, lat: location.lat, lon: location.lon }] };
+                const newExpense: Expense = { id: generateId(), description, amount, currency, amountInSAR, photos: [{ id: generateId(), base64: capturedMedia.base64, thumbnailBase64, lat: location.lat, lon: location.lon }] };
                 entry.expenses.push(newExpense);
             } else {
                 const description = analysis.data.description || 'وصف تلقائي للصورة.';
-                const newPhoto: JournalPhoto = { id: generateId(), base64: capturedMedia.base64, description, lat: location.lat, lon: location.lon };
+                const newPhoto: JournalPhoto = { id: generateId(), base64: capturedMedia.base64, thumbnailBase64, description, lat: location.lat, lon: location.lon };
                 entry.photos.push(newPhoto);
                 if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
             }
@@ -157,12 +159,11 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
                 finalMimeType = muted.mimeType;
             }
             const thumbnailBase64 = await generateVideoThumbnail(capturedMedia.blob).catch(() => undefined);
-            const description = await geminiService.analyzeMediaForJournal(finalBase64, finalMimeType, location);
-            const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, description, lat: location.lat, lon: location.lon };
+            const newVideo: JournalVideo = { id: generateId(), base64: finalBase64, mimeType: finalMimeType, thumbnailBase64, lat: location.lat, lon: location.lon };
             entry.videos.push(newVideo);
-            if (description) entry.notes = (entry.notes ? `${entry.notes}\n- ${description}` : `- ${description}`).trim();
         }
         await db.putTrip(trip);
+        window.dispatchEvent(new CustomEvent('custom-storage-update'));
     } catch (error) {
         console.error("Error processing media:", error);
         setError(error instanceof Error ? error.message : 'حدث خطأ أثناء معالجة المحتوى.');
