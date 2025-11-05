@@ -96,6 +96,9 @@ export const generateThumbnail = (base64: string, maxDimension: number = 200): P
 
 export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Promise<string> => {
   return new Promise((resolve, reject) => {
+    const TIMEOUT_MS = 10000;
+    let timer: number | null = null;
+    
     const video = document.createElement('video');
     video.style.display = 'none';
     video.preload = 'metadata';
@@ -107,6 +110,7 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     const url = URL.createObjectURL(file);
 
     const cleanup = () => {
+      if (timer) clearTimeout(timer);
       URL.revokeObjectURL(url);
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
@@ -115,6 +119,10 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
       if (canvas.parentElement) document.body.removeChild(canvas);
     };
 
+    timer = window.setTimeout(() => {
+        onError(`Video thumbnail generation timed out after ${TIMEOUT_MS / 1000}s.`);
+    }, TIMEOUT_MS);
+    
     const onSeeked = () => {
       try {
         const ctx = canvas.getContext('2d');
@@ -154,9 +162,14 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
       }
     };
 
+    // FIX: Replaced implementation to add explicit type guarding block to resolve TypeScript error on line 359.
     const onError = (e: Event | string) => {
       cleanup();
-      const errorMsg = (e instanceof Event && e.target) ? (e.target as HTMLVideoElement).error?.message : e.toString();
+      if (typeof e === 'string') {
+        reject(new Error(`Error loading video for thumbnail: ${e}`));
+        return;
+      }
+      const errorMsg = (e.target as HTMLVideoElement)?.error?.message || 'Unknown video error';
       reject(new Error(`Error loading video for thumbnail: ${errorMsg}`));
     };
 
@@ -168,7 +181,6 @@ export const generateVideoThumbnail = (file: File, seekToTime: number = 0.5): Pr
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onError);
 
-    // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
     document.body.appendChild(video);
     document.body.appendChild(canvas);
@@ -249,6 +261,9 @@ export const getSupportedVideoMimeType = () => {
 
 export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Promise<{ blob: Blob, wasTrimmed: boolean }> => {
   return new Promise((resolve, reject) => {
+    let timer: number | null = null;
+    const TIMEOUT_MS = 20000; // 20 seconds for loading and trimming.
+
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
     video.style.display = 'none';
@@ -261,11 +276,17 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     let animationFrameId: number;
 
     const cleanup = () => {
+      if (timer) clearTimeout(timer);
       URL.revokeObjectURL(url);
       if (video.parentElement) document.body.removeChild(video);
       if (canvas.parentElement) document.body.removeChild(canvas);
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
+    
+    timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error(`Video trimming timed out after ${TIMEOUT_MS / 1000}s.`));
+    }, TIMEOUT_MS);
 
     video.onloadedmetadata = () => {
       if (video.duration <= maxDurationSeconds) {
@@ -282,7 +303,6 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
             return reject(new Error('Could not get canvas context.'));
         }
 
-        // FIX: Check for canvas.captureStream support
         if (typeof (canvas as any).captureStream !== 'function') {
             cleanup();
             return reject(new Error('canvas.captureStream() is not supported by this browser.'));
@@ -340,12 +360,17 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
       }
     };
 
-    video.onerror = (e) => {
+    // FIX: Added explicit type guarding block to resolve TypeScript error on line 476.
+    video.onerror = (e: Event | string) => {
       cleanup();
-      reject(new Error(`Error loading video for trimming: ${e}`));
+      if (typeof e === 'string') {
+        reject(new Error(`Error loading video for trimming: ${e}`));
+        return;
+      }
+      const errorMessage = (e.target as HTMLVideoElement)?.error?.message || 'Unknown error';
+      reject(new Error(`Error loading video for trimming: ${errorMessage}`));
     };
     
-    // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
     document.body.appendChild(video);
     document.body.appendChild(canvas);
@@ -354,6 +379,9 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
 
 export const removeAudioFromVideo = async (base64: string, mimeType: string): Promise<{ base64: string, mimeType: string }> => {
     return new Promise(async (resolve, reject) => {
+        let timer: number | null = null;
+        const TIMEOUT_MS = 60000; // 60s, can be long for large videos.
+
         const video = document.createElement('video');
         const canvas = document.createElement('canvas');
         video.style.display = 'none';
@@ -362,11 +390,17 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
         let animationFrameId: number;
 
         const cleanup = () => {
+            if (timer) clearTimeout(timer);
             if (video.src) URL.revokeObjectURL(video.src);
             if (video.parentElement) video.parentElement.removeChild(video);
             if (canvas.parentElement) canvas.parentElement.removeChild(canvas);
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
         };
+
+        timer = window.setTimeout(() => {
+            cleanup();
+            reject(new Error(`Removing audio timed out after ${TIMEOUT_MS / 1000}s.`));
+        }, TIMEOUT_MS);
 
         try {
             const response = await fetch(`data:${mimeType};base64,${base64}`);
@@ -385,7 +419,6 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                         return reject(new Error('Could not get canvas context.'));
                     }
 
-                    // FIX: Check for canvas.captureStream support
                     if (typeof (canvas as any).captureStream !== 'function') {
                         cleanup();
                         return reject(new Error('canvas.captureStream() is not supported by this browser.'));
@@ -450,12 +483,11 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
                 }
             };
             
-            video.onerror = () => {
+            video.onerror = (e) => {
                  cleanup();
-                 reject(new Error("Error loading video for processing."));
+                 reject(new Error(`Error loading video for processing: ${(e.target as HTMLVideoElement)?.error?.message || 'Unknown error'}`));
             };
 
-            // Set src AFTER attaching listeners to prevent race conditions
             video.src = URL.createObjectURL(videoBlob);
             document.body.appendChild(video);
             document.body.appendChild(canvas);
