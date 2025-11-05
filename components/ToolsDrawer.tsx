@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tool } from '../types';
-import { X, MapPin, Scan, UtensilsCrossed, Search, Route, PartyPopper, Building2, BrainCircuit, ParkingCircle, Home, FlaskConical, User, Heart } from 'lucide-react';
+import { X, MapPin, Scan, UtensilsCrossed, Search, Route, PartyPopper, Building2, BrainCircuit, ParkingCircle, Home, FlaskConical, User, Heart, CloudRain } from 'lucide-react';
 
 interface ToolInfo {
   id: Tool;
@@ -19,6 +19,7 @@ const tools: ToolInfo[] = [
   { id: Tool.ActivitiesFinder, title: 'الأنشطة', description: 'اكتشف أنشطة وفعاليات', icon: PartyPopper, color: 'bg-pink-500' },
   { id: Tool.CityCenterFinder, title: 'أين قلب المدينة؟', description: 'اكتشف وسط المدينة', icon: Building2, color: 'bg-indigo-500' },
   { id: Tool.AskMeAnything, title: 'اسألني أي شيء', description: 'مساعدك الذكي للسفر', icon: BrainCircuit, color: 'bg-indigo-500' },
+  { id: Tool.RainFinder, title: 'باحث الأمطار', description: 'ابحث عن الأمطار القريبة', icon: CloudRain, color: 'bg-sky-500' },
   { id: Tool.ParkMyCar, title: 'أين أوقفت سيارتي؟', description: 'احفظ موقع سيارتك', icon: ParkingCircle, color: 'bg-slate-500' },
   { id: Tool.MyAccommodation, title: 'أين أسكن؟', description: 'احفظ موقع سكنك', icon: Home, color: 'bg-cyan-500' },
   { id: Tool.IngredientGuide, title: 'دليل المكونات', description: 'معلومات عن المكونات', icon: FlaskConical, color: 'bg-yellow-500' },

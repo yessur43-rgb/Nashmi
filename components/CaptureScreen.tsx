@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tool, Trip, JournalEntry, JournalPhoto, JournalVideo, Expense } from '../types';
 import * as db from '../services/dbService';
 import * as geminiService from '../services/geminiService';
-import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString } from '../utils/helpers';
+import { blobToBase64, generateVideoThumbnail, removeAudioFromVideo, getLocalDateString, compressImageAndConvertToBase64 } from '../utils/helpers';
 import ToolsDrawer from './ToolsDrawer';
 import QuickAudioModal from './common/QuickAudioModal';
 import ImageEditor from './ImageEditor'; // Import the new editor component
@@ -17,7 +17,7 @@ export type CapturedMedia = {
     objectUrl: string;
     base64: string;
     blob: Blob;
-    mimeType?: string;
+    mimeType: string;
 };
 
 interface CaptureScreenProps {
@@ -90,11 +90,12 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
 
     try {
         const objectUrl = URL.createObjectURL(file);
-        const base64 = await blobToBase64(file);
         
         if (file.type.startsWith('image/')) {
-            setCapturedMedia({ type: 'photo', objectUrl, base64, blob: file });
+            const base64 = await compressImageAndConvertToBase64(file);
+            setCapturedMedia({ type: 'photo', objectUrl, base64, blob: file, mimeType: 'image/jpeg' });
         } else if (file.type.startsWith('video/')) {
+            const base64 = await blobToBase64(file);
             setCapturedMedia({ type: 'video', objectUrl, base64, blob: file, mimeType: file.type });
         }
         setViewMode('preview');
@@ -138,7 +139,7 @@ const CaptureScreen: React.FC<CaptureScreenProps> = ({ onSelectTool, isDarkMode,
             }
         } else if (capturedMedia.type === 'video' && capturedMedia.blob) {
             let finalBase64 = capturedMedia.base64;
-            let finalMimeType = capturedMedia.mimeType || 'video/webm';
+            let finalMimeType = capturedMedia.mimeType;
             if (shouldMuteVideo) {
                 const muted = await removeAudioFromVideo(finalBase64, finalMimeType);
                 finalBase64 = muted.base64;

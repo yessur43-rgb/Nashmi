@@ -730,9 +730,9 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                     setProcessingStatus(`قص الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     const MAX_DURATION_SECONDS = 60;
-                    const { blob: processedVideoBlob, wasTrimmed } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
+                    const { blob: processedVideoBlob } = await trimVideoBlob(fileToProcess, MAX_DURATION_SECONDS);
 
-                    setProcessingStatus(`تحليل الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    setProcessingStatus(`معالجة الفيديو ${currentNumber} من ${totalInBatch}...`);
                     await yieldToMain();
                     let base64 = await blobToBase64(processedVideoBlob);
                     let mimeType = processedVideoBlob.type;
@@ -743,24 +743,21 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
                         return undefined;
                     });
 
-                    const description = await geminiService.analyzeMediaForJournal(base64, mimeType, location);
-                    
-                    if (!wasTrimmed) {
-                         setProcessingStatus(`ضغط الفيديو ${currentNumber} من ${totalInBatch}...`);
-                         await yieldToMain();
-                         try {
-                            const mutedVideo = await removeAudioFromVideo(base64, mimeType);
-                            base64 = mutedVideo.base64;
-                            mimeType = mutedVideo.mimeType;
-                        } catch (muteError) {
-                            console.error("Could not remove audio from video, storing original:", muteError);
-                            setFormError("لم نتمكن من ضغط الفيديو، سيتم حفظه بحجمه الأصلي.");
-                        }
+                    // Per user request, ensure all videos have no sound.
+                    setProcessingStatus(`إزالة الصوت من الفيديو ${currentNumber} من ${totalInBatch}...`);
+                    await yieldToMain();
+                    try {
+                        const mutedVideo = await removeAudioFromVideo(base64, mimeType);
+                        base64 = mutedVideo.base64;
+                        mimeType = mutedVideo.mimeType;
+                    } catch (muteError) {
+                        console.error("Could not remove audio from video, storing original:", muteError);
+                        setFormError("لم نتمكن من إزالة الصوت من الفيديو، سيتم حفظه بصوته الأصلي.");
                     }
-
-                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, description, lat: location?.lat, lon: location?.lon };
-                    const newNotes = description ? (currentEntry.notes ? `${currentEntry.notes}\n- ${description}` : `- ${description}`) : currentEntry.notes;
-                    updateEntry({ videos: [...currentEntry.videos, newVideo], notes: newNotes.trim() });
+                    
+                    // Per user request, do not generate comments for videos.
+                    const newVideo: JournalVideo = { id: generateId(), base64, mimeType, thumbnailBase64, lat: location?.lat, lon: location?.lon };
+                    updateEntry({ videos: [...currentEntry.videos, newVideo] });
                 }
             } catch (error) {
                 console.error("Error processing file:", fileToProcess.name, error);
@@ -773,7 +770,7 @@ const JournalEntryForm: React.FC<{trip: Trip; entry: JournalEntry | null; onSave
 
         const timeoutId = setTimeout(processQueue, 100); // Give UI time to update status
         return () => clearTimeout(timeoutId);
-    }, [mediaQueue, isProcessingMedia, location, currentEntry.notes, currentEntry.photos, currentEntry.videos, currentEntry.expenses]);
+    }, [mediaQueue, isProcessingMedia, location, currentEntry.expenses, currentEntry.photos, currentEntry.videos]);
 
 
     const handleNoteFromAudio = async (audioBlob: Blob) => {

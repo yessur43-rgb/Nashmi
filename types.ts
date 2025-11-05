@@ -13,6 +13,7 @@ export enum Tool {
     MySpace = 'MySpace',
     Favorites = 'Favorites',
     AskMeAnything = 'AskMeAnything',
+    RainFinder = 'RainFinder',
 }
 
 export interface Ingredient {
@@ -209,3 +210,11 @@ export type JournalImageAnalysis = {
     type: 'expense';
     data: { description: string; amount: number; currency: string; amountInSAR: number; };
 };
+
+export interface RainingPlace {
+    name: string;
+    description: string;
+    distance: string;
+    intensity: 'خفيف' | 'متوسط' | 'غزير' | 'غير معروف';
+    mapsLink: string;
+}

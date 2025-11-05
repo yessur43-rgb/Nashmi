@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, GenerateContentResponse, Chat, Modality } from "@google/genai";
 // FIX: Imported JournalImageAnalysis type.
-import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool, JournalImageAnalysis } from '../types';
+import { ProductAnalysis, MenuItem, Place, FindItResult, FindItImageResult, Activity, RoutePlace, IngredientInfo, CityCenterInfo, JournalEntry, JournalPhoto, Expense, Trip, ParkingLot, JournalVideo, Tool, JournalImageAnalysis, RainingPlace } from '../types';
 import { calculateDistance } from '../utils/helpers';
 
 let ai: GoogleGenAI | null = null;
@@ -245,7 +245,12 @@ export const analyzeProductByBarcode = async (barcode: string): Promise<ProductA
     const textResponse = response.text.trim();
     const jsonMatch = textResponse.match(/```json\s*([\s\S]*?)\s*```/);
     const jsonString = jsonMatch ? jsonMatch[1] : textResponse;
-    return JSON.parse(jsonString) as ProductAnalysis;
+    try {
+        return JSON.parse(jsonString) as ProductAnalysis;
+    } catch (e) {
+        console.error(`Error parsing JSON for barcode "${barcode}":`, e, jsonString);
+        return null;
+    }
   } catch (error) {
     console.error(`Error analyzing product with barcode ${barcode}:`, error);
     return null;
@@ -388,6 +393,7 @@ export const findPlacesNearby = async (query: string, location: { lat: number; l
     ابحث عن أماكن قريبة بناءً على الاستعلام التالي: "${query}".
     موقعي الحالي هو خط العرض ${location.lat} وخط الطول ${location.lon}.
     تأكد من أن جميع الأرقام (مثل التقييم والمسافة) مكتوبة بالشكل الغربي (1, 2, 3).
+    تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
     أجب بصيغة JSON فقط، على شكل مصفوفة من الكائنات. يجب أن يحتوي كل كائن على الحقول التالية:
     - name: string (اسم المكان)
     - category: string (فئة المكان، مثل "مطعم" أو "مسجد")
@@ -447,6 +453,7 @@ export const findItForMe = async (query: string, location: { lat: number; lon: n
     - إذا كان الاستعلام عن متجر، ابحث عن المتاجر القريبة المطابقة.
     - **أجب باللغة العربية**. يجب أن تكون جميع القيم النصية، خاصة حقل "details"، باللغة العربية.
     - ملاحظة هامة: يجب أن تكون جميع الأرقام في الإجابة، مثل المسافات، مكتوبة بالشكل الغربي (1, 2, 3).
+    - تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
     - أرجع الإجابة كـ JSON array فقط. يجب أن يكون كل عنصر في المصفوفة كائنًا يمثل إما "store" أو "product".
 
     لكائن "store"، استخدم هذا الهيكل (يجب أن تكون المفاتيح باللغة الإنجليزية):
@@ -519,7 +526,7 @@ export const findItByImage = async (base64Image: string, location: { lat: number
 1.  حدد ما إذا كانت الصورة لـ "product" أم "place" (مثل متجر, معلم, مطعم).
 2.  تعرف على اسم المنتج أو المكان.
 3.  اكتب وصفًا مفصلاً له.
-4.  **إذا كان مكانًا:** ابحث عنه في خرائط Google وقدم رابطًا للوصول إليه.
+4.  **إذا كان مكانًا:** ابحث عنه في خرائط Google وقدم رابطًا للوصول إليه. تأكد من أن رابط خرائط جوجل (mapsLink) صحيح وقابل للعمل ومأخوذ مباشرة من نتائج البحث.
 5.  **إذا كان منتجًا:** اذكر أنواع المتاجر أو الأماكن التي يُباع فيها عادةً (مثال: "المتاجر الآسيوية المتخصصة", "محلات السوبر ماركت الكبرى").
 6.  أجب بصيغة JSON فقط باللغة العربية.
 
@@ -600,6 +607,7 @@ export const findActivitiesNearby = async (query: string, location: { lat: numbe
     - لكل نشاط، قدم وصفًا جذابًا وموجزًا.
     - **أجب باللغة العربية**.
     - ملاحظة هامة: يجب أن تكون جميع الأرقام في الإجابة، مثل التكلفة والمسافة، مكتوبة بالشكل الغربي (1, 2, 3).
+    - تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
     - أرجع الإجابة كـ JSON array فقط. يجب أن يتبع كل كائن في المصفوفة هذا الهيكل الدقيق (المفاتيح باللغة الإنجليزية):
     {
       "name": "اسم المكان أو النشاط",
@@ -673,7 +681,8 @@ export const findPlacesOnRoute = async (start: string, destination: string, quer
     4.  **رتب النتائج من الأقرب (أقل مسافة انعطاف) إلى الأبعد.**
     5.  **أجب باللغة العربية**.
     6.  ملاحظة هامة: يجب أن تكون جميع الأرقام في الإجابة مكتوبة بالشكل الغربي (1, 2, 3).
-    7.  أرجع الإجابة كـ JSON array فقط. يجب أن يتبع كل كائن في المصفوفة هذا الهيكل الدقيق (المفاتيح باللغة الإنجليزية):
+    7.  تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
+    8.  أرجع الإجابة كـ JSON array فقط. يجب أن يتبع كل كائن في المصفوفة هذا الهيكل الدقيق (المفاتيح باللغة الإنجليزية):
     {
       "name": "اسم المكان",
       "category": "فئة المكان (مثال: 'مطعم', 'مسجد', 'محطة استراحة')",
@@ -742,6 +751,7 @@ export const findCityCenters = async (location: { lat: number; lon: number }): P
     - لكل منطقة، ابحث عن 2-3 مطاعم ومقاهي مشهورة جدًا بين الزوار والسياح.
     - **أجب باللغة العربية**.
     - ملاحظة هامة: يجب أن تكون جميع الأرقام في الإجابة، بما في ذلك إحداثيات خطوط الطول والعرض، مكتوبة بالشكل الغربي (1, 2, 3).
+    - تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
     - أرجع الإجابة كـ JSON array فقط. يجب أن يتبع كل كائن في المصفوفة هذا الهيكل الدقيق (المفاتيح باللغة الإنجليزية):
     {
       "name": "اسم منطقة وسط المدينة (مثال: وسط مدينة إنترلاكن)",
@@ -807,6 +817,62 @@ export const findCityCenters = async (location: { lat: number; lon: number }): P
 
   } catch (error) {
     console.error("Error in findCityCenters service:", error);
+    return null;
+  }
+};
+
+export const findRainingPlaces = async (location: { lat: number; lon: number }): Promise<RainingPlace[] | null> => {
+  const prompt = `
+    أنت خبير أرصاد جوية. باستخدام بحث Google، ابحث عن أماكن تهطل فيها الأمطار حاليًا بالقرب من الموقع التالي: خط العرض ${location.lat} وخط الطول ${location.lon}.
+    - ركز على النتائج الفورية (الآن أو خلال الساعة القادمة).
+    - ابحث عن أسماء مناطق أو مدن أو أحياء محددة.
+    - لكل مكان، قدم وصفًا موجزًا لحالة المطر وشدته.
+    - **أجب باللغة العربية**.
+    - ملاحظة هامة: يجب أن تكون جميع الأرقام في الإجابة، مثل المسافة، مكتوبة بالشكل الغربي (1, 2, 3).
+    - تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث.
+    - أرجع الإجابة كـ JSON array فقط. يجب أن يتبع كل كائن في المصفوفة هذا الهيكل الدقيق (المفاتيح باللغة الإنجليزية):
+    {
+      "name": "اسم المنطقة أو المدينة",
+      "description": "وصف موجز لحالة الطقس (مثال: 'أمطار رعدية خفيفة', 'زخات مطر متفرقة').",
+      "distance": "المسافة من موقع المستخدم (مثال: '5 كم', '2.5 كم')",
+      "intensity": "شدة المطر. استخدم إحدى هذه القيم العربية الدقيقة: 'خفيف', 'متوسط', 'غزير', 'غير معروف'",
+      "mapsLink": "رابط خرائط جوجل للموقع."
+    }
+  `;
+
+  try {
+    const response = await generateContentWithRetry({
+      model: "gemini-2.5-pro",
+      contents: prompt,
+      config: {
+        tools: [{googleSearch: {}}],
+        thinkingConfig: { thinkingBudget: 32768 },
+      },
+    });
+
+    if (!response) {
+        console.error("Error finding raining places: API returned undefined response.");
+        return null;
+    }
+
+    const textResponse = response.text.trim();
+    const jsonMatch = textResponse.match(/```json\s*([\s\S]*?)\s*```/);
+    const jsonString = jsonMatch ? jsonMatch[1] : textResponse;
+
+    try {
+        const parsed = JSON.parse(jsonString);
+        if (Array.isArray(parsed)) {
+            return parsed as RainingPlace[];
+        }
+        console.error("Parsed JSON for raining places is not an array:", parsed);
+        return null;
+    } catch (e) {
+        console.error("Error parsing 'Rain Finder' response JSON:", e, jsonString);
+        return null;
+    }
+
+  } catch (error) {
+    console.error("Error in findRainingPlaces service:", error);
     return null;
   }
 };
@@ -1284,7 +1350,7 @@ export const findNearbyParking = async (location: { lat: number; lon: number }):
     - details: وصف موجز باللغة العربية عن الموقف، مثل حجمه أو طرق الدفع إذا كانت معروفة.
     - mapsLink: رابط خرائط جوجل للموقع.
     
-    استخدم خرائط Google للعثور على هذه المعلومات. أجب باللغة العربية وبمصفوفة JSON فقط. تأكد من أن جميع الأرقام للمسافات مكتوبة بالشكل الغربي (1, 2, 3).
+    استخدم خرائط Google للعثور على هذه المعلومات. تأكد من أن جميع روابط خرائط جوجل (mapsLink) صحيحة وقابلة للعمل ومأخوذة مباشرة من نتائج البحث. أجب باللغة العربية وبمصفوفة JSON فقط. تأكد من أن جميع الأرقام للمسافات مكتوبة بالشكل الغربي (1, 2, 3).
   `;
 
   try {
@@ -1420,9 +1486,9 @@ export const analyzeImageForJournal = async (base64Image: string, mimeType: stri
         }
 
     } catch (error) {
-        console.error("Error analyzing image for journal:", error);
-        return null;
-    }
+    console.error("Error analyzing image for journal:", error);
+    return null;
+  }
 };
 
 

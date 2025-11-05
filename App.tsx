@@ -16,6 +16,7 @@ import Favorites from './components/Favorites';
 // FIX: Removed unused 'StudioView' import which is not exported from MySpace.
 import MySpace from './components/MySpace';
 import AskMeAnything from './components/AskMeAnything';
+import RainFinder from './components/RainFinder';
 import LocationInfo from './components/common/LocationInfo';
 import ApiKeyModal from './components/common/ApiKeyModal';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -231,6 +232,7 @@ const App: React.FC = () => {
     [Tool.MySpace]: MySpace,
     [Tool.Favorites]: Favorites,
     [Tool.AskMeAnything]: AskMeAnything,
+    [Tool.RainFinder]: RainFinder,
   };
 
   const toolTitles: Record<Tool, string> = {
@@ -247,6 +249,7 @@ const App: React.FC = () => {
     [Tool.MySpace]: 'مساحتي',
     [Tool.Favorites]: 'المفضلة',
     [Tool.AskMeAnything]: 'اسألني أي شيء',
+    [Tool.RainFinder]: 'باحث الأمطار',
   };
 
   const renderContent = () => {

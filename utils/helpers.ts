@@ -341,8 +341,6 @@ export const trimVideoBlob = (videoBlob: Blob, maxDurationSeconds: number): Prom
     
     // Set src AFTER attaching listeners to prevent race conditions
     video.src = url;
-    document.body.appendChild(video);
-    document.body.appendChild(canvas);
   });
 };
 
@@ -451,8 +449,6 @@ export const removeAudioFromVideo = async (base64: string, mimeType: string): Pr
 
             // Set src AFTER attaching listeners to prevent race conditions
             video.src = URL.createObjectURL(videoBlob);
-            document.body.appendChild(video);
-            document.body.appendChild(canvas);
 
         } catch (error: any) {
             cleanup();
