@@ -24,6 +24,7 @@ import Onboarding from './components/Onboarding';
 import { Tool, Activity, StoreResult, Place, RoutePlace, Trip } from './types';
 import * as db from './services/dbService';
 import * as geminiService from './services/geminiService';
+import { getCurrentPosition, requestLocationPermission } from './utils/capacitorHelper';
 
 interface ToolProps {
   location?: { lat: number; lon: number } | null;
@@ -111,18 +112,22 @@ const App: React.FC = () => {
 
   // Geolocation
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
+    const getLocation = async () => {
+      try {
+        // Request permission first on native platforms
+        await requestLocationPermission();
+
+        // Get current position using Capacitor helper (works on both web and native)
+        const position = await getCurrentPosition();
+        setLocation({ lat: position.latitude, lon: position.longitude });
         setIsLocationLoading(false);
-      },
-      (err) => {
+      } catch (err) {
         setLocationError('يرجى تمكين الوصول إلى الموقع لاستخدام هذه الميزة.');
         setIsLocationLoading(false);
         console.error(err);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+      }
+    };
+    getLocation();
   }, []);
 
   const handleSetApiKey = async (key: string) => {
