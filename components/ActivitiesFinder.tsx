@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import * as geminiService from '../services/geminiService';
 import { Activity } from '../types';
-import LoadingSpinner from './common/LoadingSpinner';
+import SkeletonCard from './common/SkeletonCard';
 import ActivityCard from './common/ActivityCard';
 import MapView from './common/MapView';
 import { Search, AlertTriangle, PartyPopper, List, MapPin } from 'lucide-react';
@@ -103,7 +103,13 @@ const ActivitiesFinder: React.FC<ActivitiesFinderProps> = ({ location, locationE
                 </button>
             </form>
 
-            {isSearching && <LoadingSpinner message="جاري البحث عن أنشطة ممتعة..." />}
+            {isSearching && (
+                <div className="space-y-4">
+                    <SkeletonCard />
+                    <SkeletonCard />
+                    <SkeletonCard />
+                </div>
+            )}
             
             {error && !isSearching &&
                 <div className="p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200 rounded-lg text-center flex items-center justify-center gap-2">

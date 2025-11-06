@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import * as geminiService from '../services/geminiService';
 import { FindItResult, StoreResult, ProductResult, FindItImageResult, ProductAnalysis } from '../types';
+import SkeletonCard from './common/SkeletonCard';
 import LoadingSpinner from './common/LoadingSpinner';
 import ImageInput from './common/ImageInput';
 import StoreCard from './common/StoreCard';
@@ -250,7 +251,12 @@ const FindIt: React.FC<FindItProps> = ({ location, locationError, favoriteStores
                         </button>
                     </form>
 
-                    {isSearching && <LoadingSpinner message="جاري البحث..." />}
+                    {isSearching && (
+                        <div className="space-y-4">
+                            <SkeletonCard />
+                            <SkeletonCard />
+                        </div>
+                    )}
 
                     {error &&
                         <div className="p-4 bg-red-100 text-red-700 rounded-lg text-center flex items-center justify-center gap-2">

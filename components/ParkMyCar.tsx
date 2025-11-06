@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Car, MapPin, Trash2, Camera, Sparkles, AlertTriangle, Search, Clock, Ticket, Gift, ParkingCircle } from 'lucide-react';
 import LoadingSpinner from './common/LoadingSpinner';
+import SkeletonCard from './common/SkeletonCard';
 import * as geminiService from '../services/geminiService';
 import { compressImageAndConvertToBase64 } from '../utils/helpers';
 import { ParkingLot, ParkingInfo } from '../types';
@@ -236,7 +237,13 @@ const ParkMyCar: React.FC<ParkMyCarProps> = ({ location, locationError }) => {
                 parkingInfo ? renderParked(parkingInfo) : renderNotParked()
             )}
 
-            {isSearchingParking && <LoadingSpinner message="جاري البحث عن مواقف..." />}
+            {isSearchingParking && (
+                <div className="mt-8 space-y-4">
+                    <h3 className="text-2xl font-bold text-center">جاري البحث عن مواقف...</h3>
+                    <SkeletonCard />
+                    <SkeletonCard />
+                </div>
+            )}
 
             {parkingSearchError && (
                 <div className="p-4 mt-6 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200 rounded-lg text-center flex items-center justify-center gap-2">

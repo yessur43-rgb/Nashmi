@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as geminiService from '../services/geminiService';
 import { RoutePlace } from '../types';
-import LoadingSpinner from './common/LoadingSpinner';
+import SkeletonCard from './common/SkeletonCard';
 import RoutePlaceCard from './common/RoutePlaceCard';
 import { Search, MapPin, AlertTriangle, Route, LocateFixed, Flag } from 'lucide-react';
 
@@ -139,7 +139,13 @@ const OnMyWay: React.FC<OnMyWayProps> = ({ location, locationError, favoriteRout
                 </button>
             </form>
 
-            {isSearching && <LoadingSpinner message="جاري البحث على طول الطريق..." />}
+            {isSearching && (
+                <div className="space-y-4">
+                    <SkeletonCard />
+                    <SkeletonCard />
+                    <SkeletonCard />
+                </div>
+            )}
             
             {error && !isSearching &&
                 <div className="p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200 rounded-lg text-center flex items-center justify-center gap-2">

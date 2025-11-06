@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as geminiService from '../services/geminiService';
 import { Place } from '../types';
-import LoadingSpinner from './common/LoadingSpinner';
+import SkeletonCard from './common/SkeletonCard';
 import PlaceCard from './common/PlaceCard';
 import MapView from './common/MapView';
 import { Search, Utensils, AlertTriangle, List, MapPin } from 'lucide-react';
@@ -87,7 +87,13 @@ const FindPlaces: React.FC<FindPlacesProps> = ({ location, favoritePlaces = [], 
                 </button>
             </form>
 
-            {isSearching && <LoadingSpinner message="جاري البحث عن أماكن قريبة..." />}
+            {isSearching && (
+                <div className="space-y-4">
+                    <SkeletonCard />
+                    <SkeletonCard />
+                    <SkeletonCard />
+                </div>
+            )}
             
             {error && 
                 <div className="p-4 bg-red-100 text-red-700 rounded-lg text-center flex items-center justify-center gap-2">

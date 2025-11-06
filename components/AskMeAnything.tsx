@@ -3,13 +3,14 @@ import LoadingSpinner from './common/LoadingSpinner';
 import * as geminiService from '../services/geminiService';
 import { compressImageAndConvertToBase64 } from '../utils/helpers';
 import { BrainCircuit, Send, AlertTriangle, Camera, ImageUp, X, Mic, RefreshCw, User, Sparkles } from 'lucide-react';
-import { Chat } from '@google/genai';
+import { Chat, GenerateContentResponse } from '@google/genai';
 
 interface AskMeAnythingProps {
     initialState?: { query?: string };
 }
 
 interface Message {
+    id: string;
     role: 'user' | 'model';
     text: string;
     imagePreview?: string;
@@ -154,14 +155,16 @@ const AskMeAnything: React.FC<AskMeAnythingProps> = ({ initialState }) => {
         setIsLoading(true);
         setError(null);
 
-        const userMessage: Message = { role: 'user', text: askQuery };
+        const userMessage: Message = { id: `user-${Date.now()}`, role: 'user', text: askQuery };
         if (imagePreview) userMessage.imagePreview = imagePreview;
-        setConversation(prev => [...prev, userMessage]);
+        
+        const modelMessageId = `model-${Date.now()}`;
+        setConversation(prev => [...prev, userMessage, { id: modelMessageId, role: 'model', text: '' }]);
 
         const currentImageFile = imageFile;
         setQuery('');
         setImageFile(null);
-        setImagePreview(null);
+        setImagePreview(null); // The preview URL is now stored in the message
 
         try {
             const contentParts: any[] = [];
@@ -171,14 +174,22 @@ const AskMeAnything: React.FC<AskMeAnythingProps> = ({ initialState }) => {
             }
             contentParts.push({ text: askQuery || "انظر إلى هذه الصورة واشرحها." });
 
-            const response = await chat.sendMessage({ message: contentParts });
-            const modelMessage: Message = { role: 'model', text: response.text };
-            setConversation(prev => [...prev, modelMessage]);
+            const stream = await chat.sendMessageStream({ message: contentParts });
+            setIsLoading(false);
+
+            let accumulatedText = '';
+            for await (const chunk of stream) {
+                accumulatedText += chunk.text;
+                setConversation(prev => prev.map(msg => 
+                    msg.id === modelMessageId ? { ...msg, text: accumulatedText } : msg
+                ));
+            }
 
         } catch (err) {
             setError('حدث خطأ. حاول مرة أخرى.');
-            const errorMessage: Message = { role: 'model', text: 'عذراً، حدث خطأ أثناء محاولة الحصول على إجابة.' };
-            setConversation(prev => [...prev, errorMessage]);
+             setConversation(prev => prev.map(msg => 
+                msg.id === modelMessageId ? { ...msg, text: 'عذراً، حدث خطأ أثناء محاولة الحصول على إجابة.' } : msg
+            ));
             console.error(err);
         } finally {
             setIsLoading(false);
@@ -232,27 +243,21 @@ const AskMeAnything: React.FC<AskMeAnythingProps> = ({ initialState }) => {
             
             <div className="flex-grow bg-white dark:bg-gray-800 rounded-xl shadow-inner overflow-y-auto p-4 space-y-4">
                 {conversation.map((msg, index) => (
-                    <div key={index} className={`flex items-end gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div key={msg.id} className={`flex items-end gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         {msg.role === 'model' && <div className="flex-shrink-0 w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center text-white"><Sparkles size={18} /></div>}
                         <div className={`max-w-xl p-3 rounded-2xl ${msg.role === 'user' ? 'bg-primary text-white rounded-br-none' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-bl-none'}`}>
                             {msg.imagePreview && <img src={msg.imagePreview} alt="معاينة المستخدم" className="w-full max-w-xs rounded-lg mb-2" />}
-                            <MarkdownRenderer text={msg.text} />
+                            {msg.text ? <MarkdownRenderer text={msg.text} /> : (
+                                 <div className="flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span>
+                                    <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-150"></span>
+                                    <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-300"></span>
+                                </div>
+                            )}
                         </div>
                         {msg.role === 'user' && <div className="flex-shrink-0 w-8 h-8 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center"><User size={18} /></div>}
                     </div>
                 ))}
-                {isLoading && (
-                     <div className="flex items-end gap-3 justify-start">
-                        <div className="flex-shrink-0 w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center text-white"><Sparkles size={18} /></div>
-                        <div className="max-w-xl p-3 rounded-2xl bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-bl-none">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span>
-                                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-150"></span>
-                                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-300"></span>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {error && <div className="p-3 bg-red-100 text-red-700 rounded-lg text-center flex items-center justify-center gap-2"><AlertTriangle size={18}/> {error}</div>}
                 <div ref={chatEndRef} />
             </div>

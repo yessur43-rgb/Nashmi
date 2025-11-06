@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import * as geminiService from '../services/geminiService';
 import { CityCenterInfo } from '../types';
-import LoadingSpinner from './common/LoadingSpinner';
+import SkeletonCard from './common/SkeletonCard';
 import { Building2, Search, AlertTriangle, MapPin, Utensils, Coffee, Sparkles } from 'lucide-react';
 
 interface CityCenterFinderProps {
@@ -58,7 +58,12 @@ const CityCenterFinder: React.FC<CityCenterFinderProps> = ({ location, locationE
                 </button>
             )}
 
-            {isSearching && <LoadingSpinner message="جاري استكشاف المناطق المحيطة..." />}
+            {isSearching && (
+                <div className="space-y-4">
+                    <SkeletonCard />
+                    <SkeletonCard />
+                </div>
+            )}
             
             {error && !isSearching &&
                 <div className="p-4 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 rounded-lg text-center flex items-center justify-center gap-2">
