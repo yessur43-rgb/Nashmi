@@ -94,51 +94,78 @@ const getStore = async (storeName: string, mode: IDBTransactionMode) => {
     return tx.objectStore(storeName);
 };
 
-// Generic CRUD
-const getAll = async <T>(storeName: string): Promise<T[]> => {
+// Helper function to add retry logic to DB operations.
+// This handles cases where the connection is closed unexpectedly (e.g., user clears site data).
+const withRetries = async <T>(action: () => Promise<T>): Promise<T> => {
+    for (let i = 0; i < 3; i++) { // Attempt up to 3 times
+        try {
+            return await action();
+        } catch (error: any) {
+            const isRetriable =
+                error.name === 'AbortError' ||
+                error.name === 'TransactionInactiveError' ||
+                (error.name === 'InvalidStateError' && (error.message.includes('connection is closing') || error.message.includes('connection is closed')));
+
+            if (isRetriable && i < 2) { // Only retry if it's a retriable error and we have retries left
+                console.warn(`DB operation failed with retriable error (${error.name}), retrying...`);
+                dbPromise = null; // Invalidate the connection promise to force a new one
+                await new Promise(res => setTimeout(res, 100 * (i + 1))); // Wait a bit before retrying, with increasing backoff
+            } else {
+                console.error('DB operation failed after multiple retries or for a non-retriable reason:', error);
+                throw error; // Re-throw if not retriable or retries are exhausted
+            }
+        }
+    }
+    // This line should not be reachable due to the throw in the loop, but it satisfies TypeScript.
+    throw new Error('DB operation failed unexpectedly after retries.');
+};
+
+
+// Generic CRUD with retry logic
+const getAll = async <T>(storeName: string): Promise<T[]> => withRetries(async () => {
     const store = await getStore(storeName, 'readonly');
     return new Promise((resolve, reject) => {
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });
-};
+});
 
-const put = async <T>(storeName: string, item: T): Promise<IDBValidKey> => {
+const put = async <T>(storeName: string, item: T): Promise<IDBValidKey> => withRetries(async () => {
     const store = await getStore(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
         const request = store.put(item);
         request.onsuccess = () => resolve(request.result);
         request.onerror = (event) => reject(request.error);
     });
-};
+});
 
-const deleteByKey = async (storeName: string, key: string): Promise<void> => {
+const deleteByKey = async (storeName: string, key: string): Promise<void> => withRetries(async () => {
     const store = await getStore(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
         const request = store.delete(key);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
     });
-};
+});
 
-const getByKey = async <T>(storeName: string, key: string): Promise<T | undefined> => {
+const getByKey = async <T>(storeName: string, key: string): Promise<T | undefined> => withRetries(async () => {
     const store = await getStore(storeName, 'readonly');
     return new Promise((resolve, reject) => {
         const request = store.get(key);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });
-};
+});
 
-const putKeyValue = async (storeName: string, key: any, value: any): Promise<void> => {
+const putKeyValue = async (storeName: string, key: any, value: any): Promise<void> => withRetries(async () => {
     const store = await getStore(storeName, 'readwrite');
     return new Promise((resolve, reject) => {
         const request = store.put(value, key);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
     });
-};
+});
 
 // Trips
 export const getAllTrips = () => getAll<Trip>(TRIPS_STORE).then(trips => trips.sort((a,b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));

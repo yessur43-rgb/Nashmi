@@ -29,6 +29,40 @@ const dispatchStorageUpdate = () => {
     window.dispatchEvent(new CustomEvent('custom-storage-update'));
 };
 
+const StoryGenerationProgress = ({ step }: { step: number }) => {
+    const steps = [
+        { text: "قراءة وتحليل يوميات الرحلة...", icon: BookText },
+        { text: "كتابة مسودة القصة بأسلوب إبداعي...", icon: Sparkles },
+        { text: "تصميم صفحة ويب تفاعلية للقصة...", icon: FileArchive },
+        { text: "إضافة الصور والفيديوهات إلى القصة...", icon: Clapperboard },
+        { text: "اللمسات الأخيرة... القصة جاهزة تقريبًا!", icon: Check },
+    ];
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4 animate-fade-in">
+            <div className="bg-gray-800 p-8 rounded-2xl w-full max-w-md space-y-6">
+                <h2 className="text-2xl font-bold text-white text-center">جاري إنشاء قصتك...</h2>
+                <div className="space-y-4">
+                    {steps.map((s, index) => {
+                        const Icon = s.icon;
+                        const isCompleted = step > index + 1;
+                        const isActive = step === index + 1;
+
+                        return (
+                            <div key={index} className="flex items-center gap-4 transition-all duration-300">
+                                <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300 ${isCompleted ? 'bg-green-500' : isActive ? 'bg-primary' : 'bg-gray-600'}`}>
+                                    {isCompleted ? <Check size={24} className="text-white"/> : isActive ? <Loader2 size={24} className="text-white animate-spin"/> : <Icon size={24} className="text-gray-400"/>}
+                                </div>
+                                <p className={`text-lg font-semibold transition-colors duration-300 ${isCompleted ? 'text-green-400' : isActive ? 'text-white' : 'text-gray-400'}`}>{s.text}</p>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const StoryViewer: React.FC<{ trip: Trip; onBack: () => void; }> = ({ trip, onBack }) => {
     const [canShare, setCanShare] = useState(false);
 
@@ -378,6 +412,8 @@ const TripDetails: React.FC<{
 }> = ({ trip, onBack, onAddEntry, onEditEntry, onDeleteTrip, onUpdateTrip, onViewStory }) => {
     const [summary, setSummary] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [storyGenerationProgress, setStoryGenerationProgress] = useState<number | null>(null);
+    const [localError, setLocalError] = useState<string | null>(null);
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(trip.name);
     const nameInputRef = useRef<HTMLInputElement>(null);
@@ -440,17 +476,28 @@ const TripDetails: React.FC<{
 
     const handleSummarize = async () => {
         setIsProcessing(true);
-        const result = await geminiService.summarizeEntireTrip(trip.entries);
-        setSummary(result);
-        setIsProcessing(false);
+        setLocalError(null);
+        try {
+            const result = await geminiService.summarizeEntireTrip(trip.entries);
+            setSummary(result);
+        } catch (err: any) {
+            setLocalError(err.message || "حدث خطأ أثناء تلخيص الرحلة.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const handleGenerateStory = async () => {
         setIsProcessing(true);
+        setStoryGenerationProgress(1);
+        setLocalError(null);
         try {
             const storySummary = summary || await geminiService.summarizeEntireTrip(trip.entries);
             if(storySummary && !summary) setSummary(storySummary);
             
+            await new Promise(res => setTimeout(res, 1000));
+            setStoryGenerationProgress(2);
+
             const mediaMap = new Map<string, string>();
             trip.entries.forEach(entry => {
                 entry.photos.forEach(photo => mediaMap.set(photo.id, `data:image/jpeg;base64,${photo.base64}`));
@@ -469,21 +516,39 @@ const TripDetails: React.FC<{
             
             const htmlTemplate = await geminiService.generateTripHtmlStory(simplifiedTrip, storySummary);
 
-            if (htmlTemplate) {
-                let finalHtml = htmlTemplate;
-                mediaMap.forEach((dataUrl, id) => {
-                    const srcPattern = new RegExp(`src=["']${id}["']`, 'g');
-                    finalHtml = finalHtml.replace(srcPattern, `src="${dataUrl}"`);
-                    const bgUrlPattern = new RegExp(`url\\(["']${id}["']\\)`, 'g');
-                    finalHtml = finalHtml.replace(bgUrlPattern, `url("${dataUrl}")`);
-                });
-
-                const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
-                onUpdateTrip(updatedTrip);
-                onViewStory();
+            if (!htmlTemplate) {
+                 throw new Error("لم يتمكن الذكاء الاصطناعي من إنشاء القصة. حاول مرة أخرى.");
             }
+
+            await new Promise(res => setTimeout(res, 1000));
+            setStoryGenerationProgress(3);
+            
+            let finalHtml = htmlTemplate;
+            await new Promise(res => setTimeout(res, 1000));
+            setStoryGenerationProgress(4);
+            
+            mediaMap.forEach((dataUrl, id) => {
+                const srcPattern = new RegExp(`src=["']${id}["']`, 'g');
+                finalHtml = finalHtml.replace(srcPattern, `src="${dataUrl}"`);
+                const bgUrlPattern = new RegExp(`url\\(["']${id}["']\\)`, 'g');
+                finalHtml = finalHtml.replace(bgUrlPattern, `url("${dataUrl}")`);
+            });
+
+            const updatedTrip = { ...trip, exportedStoryHtml: finalHtml };
+            onUpdateTrip(updatedTrip);
+
+            await new Promise(res => setTimeout(res, 1000));
+            setStoryGenerationProgress(5);
+            
+            await new Promise(res => setTimeout(res, 1500));
+            onViewStory();
+
+        } catch (err: any) {
+            console.error("Error generating story:", err);
+            setLocalError(err.message || "حدث خطأ غير متوقع أثناء إنشاء القصة.");
         } finally {
             setIsProcessing(false);
+            setStoryGenerationProgress(null);
         }
     };
 
@@ -496,6 +561,12 @@ const TripDetails: React.FC<{
 
     return (
         <div className="p-4 md:p-6 space-y-6 animate-fade-in">
+            {isProcessing && storyGenerationProgress ? (
+                <StoryGenerationProgress step={storyGenerationProgress} />
+            ) : isProcessing ? (
+                <LoadingSpinner message="جاري العمل..." />
+            ) : null}
+
             <div className="flex items-center justify-between gap-2">
                 <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><ArrowRight size={24} /></button>
                 {isEditingName ? (
@@ -523,6 +594,9 @@ const TripDetails: React.FC<{
                     إجمالي مصاريف الرحلة: <span className="font-bold text-primary dark:text-primary-light">{grandTotal.toFixed(2)} SAR</span>
                 </div>
             )}
+            
+            {localError && <div className="p-4 bg-red-100 text-red-700 rounded-lg text-center">{localError}</div>}
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button onClick={handleSummarize} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-secondary text-gray-900 rounded-lg font-semibold shadow-md hover:bg-yellow-500 disabled:opacity-50">
                     <Sparkles size={20}/><span>لخص الرحلة</span>
@@ -533,13 +607,12 @@ const TripDetails: React.FC<{
                         <span>عرض القصة</span>
                     </button>
                 ) : (
-                    <button onClick={handleGenerateStory} disabled={isProcessing} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
+                    <button onClick={handleGenerateStory} disabled={isProcessing || trip.entries.length === 0} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold shadow-md hover:bg-blue-600 disabled:opacity-50">
                         <Download size={20}/><span>إنشاء قصة</span>
                     </button>
                 )}
             </div>
 
-            {isProcessing && <LoadingSpinner message="جاري العمل..." />}
             {summary && <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow whitespace-pre-wrap">{summary}</div>}
             
             {isOngoing && (
