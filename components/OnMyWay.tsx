@@ -79,7 +79,7 @@ const OnMyWay: React.FC<OnMyWayProps> = ({ location, locationError, favoriteRout
                         value={startPoint}
                         onChange={(e) => setStartPoint(e.target.value)}
                         placeholder="نقطة البداية"
-                        className="w-full p-3 pr-12 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white"
+                        className="w-full p-3 pl-12 pr-12 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white"
                         disabled={isSearching}
                     />
                      <button

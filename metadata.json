@@ -1,9 +1,12 @@
 {
-  "name": "Copy of Copy of Copy of زاد مع نشمي زاد ",
+  "name": "زاد مع نشمي - رفيقك في السفر",
   "description": "تطبيق ويب لتحليل المنتجات وتحديد ما إذا كانت حلالاً أو حراماً أو مشبوهاً، مدعوم من Google Gemini.",
   "requestFramePermissions": [
     "camera",
     "geolocation",
     "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

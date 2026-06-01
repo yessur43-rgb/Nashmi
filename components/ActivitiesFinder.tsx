@@ -90,7 +90,7 @@ const ActivitiesFinder: React.FC<ActivitiesFinderProps> = ({ location, locationE
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="مثال: боулинг, سينما..."
+                    placeholder="مثال: بولينج، سينما، حديقة..."
                     className="flex-grow p-3 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white shadow-sm"
                     disabled={isSearching || !location}
                 />

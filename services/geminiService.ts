@@ -424,7 +424,19 @@ export const findPlacesNearby = async (query: string, location: { lat: number; l
 
     try {
       const parsed = JSON.parse(jsonString);
-      return Array.isArray(parsed) ? parsed as Place[] : null;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => {
+          let link = item.mapsLink;
+          if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+            link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name + ' ' + (item.category || query || ''))}`;
+          }
+          return {
+            ...item,
+            mapsLink: link
+          };
+        }) as Place[];
+      }
+      return null;
     } catch (error) {
       console.error("Error parsing places response as JSON:", textResponse, error);
       if (textResponse.includes("لا توجد نتائج") || textResponse.includes("no results")) {
@@ -499,8 +511,20 @@ export const findItForMe = async (query: string, location: { lat: number; lon: n
     try {
       const parsed = JSON.parse(jsonString);
       if (Array.isArray(parsed)) {
-        // Simple validation to check if it matches our expected structure
-        return parsed.filter(item => item.type && item.name && item.details) as FindItResult[];
+        const filtered = parsed.filter(item => item.type && item.name && item.details);
+        return filtered.map((item: any) => {
+          if (item.type === 'store') {
+            let link = item.mapsLink;
+            if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+              link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name + ' ' + (item.address || ''))}`;
+            }
+            return {
+              ...item,
+              mapsLink: link
+            };
+          }
+          return item;
+        }) as FindItResult[];
       }
       return null;
     } catch (e) {
@@ -576,6 +600,13 @@ export const findItByImage = async (base64Image: string, location: { lat: number
     try {
         const parsed = JSON.parse(jsonString);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            if (parsed.type === 'place') {
+                let link = parsed.mapsLink;
+                if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+                    link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parsed.name)}`;
+                }
+                parsed.mapsLink = link;
+            }
             return parsed as FindItImageResult;
         }
         console.error("Parsed JSON for findItByImage is not a valid object:", parsed);
@@ -642,7 +673,16 @@ export const findActivitiesNearby = async (query: string, location: { lat: numbe
     try {
         const parsed = JSON.parse(jsonString);
         if (Array.isArray(parsed)) {
-            return parsed as Activity[];
+            return parsed.map((item: any) => {
+                let link = item.mapsLink;
+                if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+                    link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name + ' ' + (item.category || ''))}`;
+                }
+                return {
+                    ...item,
+                    mapsLink: link
+                };
+            }) as Activity[];
         }
         console.error("Parsed JSON for activities is not an array:", parsed);
         return null;
@@ -720,7 +760,16 @@ export const findPlacesOnRoute = async (start: string, destination: string, quer
     try {
         const parsed = JSON.parse(jsonString);
         if (Array.isArray(parsed)) {
-            return parsed as RoutePlace[];
+            return parsed.map((item: any) => {
+                let link = item.mapsLink;
+                if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+                    link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name + ' ' + (item.category || ''))}`;
+                }
+                return {
+                    ...item,
+                    mapsLink: link
+                };
+            }) as RoutePlace[];
         }
         console.error("Parsed JSON for route places is not an array:", parsed);
         return null;
@@ -789,12 +838,16 @@ export const findCityCenters = async (location: { lat: number; lon: number }): P
     try {
         const parsed = JSON.parse(jsonString);
         if (Array.isArray(parsed)) {
-            // Calculate distance for each result
+            // Calculate distance and postprocess mapsLink for each result
             const resultsWithDistance: CityCenterInfo[] = parsed.map(center => {
                 const distance = (center.lat && center.lon) 
                     ? calculateDistance(location.lat, location.lon, center.lat, center.lon)
                     : 'غير معروف';
-                return { ...center, distance };
+                let link = center.mapsLink;
+                if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+                    link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(center.name)}`;
+                }
+                return { ...center, distance, mapsLink: link };
             });
             return resultsWithDistance;
         }
@@ -851,7 +904,16 @@ export const findRainingPlaces = async (location: { lat: number; lon: number }):
     try {
         const parsed = JSON.parse(jsonString);
         if (Array.isArray(parsed)) {
-            return parsed as RainingPlace[];
+            return parsed.map((item: any) => {
+                let link = item.mapsLink;
+                if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+                    link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name)}`;
+                }
+                return {
+                    ...item,
+                    mapsLink: link
+                };
+            }) as RainingPlace[];
         }
         console.error("Parsed JSON for raining places is not an array:", parsed);
         return null;
@@ -1370,7 +1432,19 @@ export const findNearbyParking = async (location: { lat: number; lon: number }):
 
     try {
       const parsed = JSON.parse(jsonString);
-      return Array.isArray(parsed) ? parsed as ParkingLot[] : null;
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => {
+          let link = item.mapsLink;
+          if (!link || typeof link !== 'string' || !link.startsWith('http')) {
+            link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.name)}`;
+          }
+          return {
+            ...item,
+            mapsLink: link
+          };
+        }) as ParkingLot[];
+      }
+      return null;
     } catch (error) {
       console.error("Error parsing parking response as JSON:", textResponse, error);
       return null;
